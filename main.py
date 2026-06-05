@@ -1,6 +1,6 @@
 import os
 import asyncio
-import getpass
+
 from dotenv import load_dotenv
 from browser_use import Agent, ChatGoogle
 
@@ -10,11 +10,17 @@ load_dotenv()
 async def main():
     print("\n--- Examly Auto-Solver Setup ---")
     
-    # Get inputs from the user in the terminal
-    email = input("Enter your Examly Email: ")
-    password = getpass.getpass("Enter your Examly Password: ")
-    course_name = input("Enter the Course Name (e.g., '2028_MBU...'): ")
-    target_date = input("Enter the Day/Date box to click (e.g., 'Day 5' or 'Day 12'): ")
+    # Get inputs from environment variables
+    email = os.getenv("EXAMLY_EMAIL")
+    password = os.getenv("EXAMLY_PASSWORD")
+    course_name = os.getenv("COURSE_NAME")
+    target_date = os.getenv("TARGET_DATE")
+
+    # Check if all required variables are set
+    if not all([email, password, course_name, target_date]):
+        print("Error: Missing required environment variables.")
+        print("Please check your .env file and ensure EXAMLY_EMAIL, EXAMLY_PASSWORD, COURSE_NAME, and TARGET_DATE are set.")
+        return
     
     print("\nInitializing Browser Agent with Gemini 3.1 Flash Lite (Native Wrapper)...")
     
