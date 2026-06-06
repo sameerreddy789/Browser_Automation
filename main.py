@@ -4,6 +4,7 @@ import asyncio
 import logging
 import argparse
 import json
+import re
 
 from dotenv import load_dotenv
 from browser_use import Agent, ChatGoogle, Controller
@@ -51,6 +52,20 @@ class FallbackChatGoogle:
 # Initialize Controller for custom actions
 controller = Controller()
 
+# Helper for synchronous blocking input in worker thread
+def sync_get_user_input(prompt: str) -> str:
+    print(f"\n\033[93m🤖 [AGENT CLARIFICATION NEEDED]: {prompt}\033[0m")
+    return input("👉 Your Response: ").strip()
+
+@controller.action(
+    description="Asks the user (Sir) a clarifying question in the terminal and waits for their input. "
+                "Use this when you hit a coding question and need to know the preferred language, "
+                "when you encounter ambiguity (e.g. two similar links), or when you need details not specified in the task."
+)
+async def request_user_input(question_prompt: str) -> str:
+    response = await asyncio.to_thread(sync_get_user_input, question_prompt)
+    return response
+
 @controller.action(
     description="Saves a lesson learned, site-specific fix, or error-recovery workaround for future runs. "
                 "Use this when you successfully bypass a bug, enable a disabled button, close a blocking overlay, "
@@ -90,43 +105,82 @@ def save_agent_knowledge(site_name: str, error_description: str, solution_javasc
 load_dotenv()
 
 async def main():
-    print("\n--- General-Purpose & Self-Healing Agent Setup ---")
+    print("\n--- AI Browser Agent Guided Intake Wizard ---")
     
-    # Set up argument parser
-    parser = argparse.ArgumentParser(description="General-Purpose Browser Automation Agent with Self-Healing Memory")
-    parser.add_argument("--url", help="Target website URL (default: Examly)")
-    parser.add_argument("--email", help="Login email")
-    parser.add_argument("--password", help="Login password")
-    parser.add_argument("--task", help="The goal or task description in plain English")
-    args, unknown = parser.parse_known_args()
-
-    # Determine URL
-    target_url = args.url or os.getenv("TARGET_URL") or "https://mbu931.examly.io/"
-    
-    # Determine Credentials
-    email = args.email or os.getenv("EXAMLY_EMAIL")
-    password = args.password or os.getenv("EXAMLY_PASSWORD")
-    
-    # If credentials are not set, ask for them interactively
-    if not email:
-        email = input("Enter email/username: ").strip()
-    if not password:
-        password = input("Enter password: ").strip()
+    # 1. Ask for Target Website URL
+    target_url = input("Enter target website URL [default: https://mbu931.examly.io/]: ").strip()
+    if not target_url:
+        target_url = os.getenv("TARGET_URL") or "https://mbu931.examly.io/"
         
+    # 2. Ask for Task/Goal
+    task_goal = input("What task would you like to perform today? (e.g. 'Take the Day 13 Assessment'): ").strip()
+    while not task_goal:
+        task_goal = input("Task is required. What would you like to do?: ").strip()
+
+    # Determine platform/domain name
+    from urllib.parse import urlparse
+    parsed = urlparse(target_url)
+    domain = parsed.netloc or parsed.path
+    if domain.startswith("www."):
+        domain = domain[4:]
+    if "/" in domain:
+        domain = domain.split("/")[0]
+        
+    print(f"\nDetecting requirements for site: {domain}...")
+    
+    # 3. Gather Credentials based on site
+    # Check if we have credentials in .env first
+    domain_prefix = domain.split('.')[0].upper()
+    env_email_key = f"{domain_prefix}_EMAIL"
+    env_pass_key = f"{domain_prefix}_PASSWORD"
+    
+    # Fallback to standard EXAMLY credentials if it's Examly
+    if "examly" in domain.lower():
+        email = os.getenv("EXAMLY_EMAIL")
+        password = os.getenv("EXAMLY_PASSWORD")
+    else:
+        email = os.getenv(env_email_key) or os.getenv("EXAMLY_EMAIL")
+        password = os.getenv(env_pass_key) or os.getenv("EXAMLY_PASSWORD")
+        
+    # Ask for missing credentials or confirm overrides
+    if not email:
+        email = input(f"Enter username/email for {domain}: ").strip()
+    else:
+        use_default = input(f"Use saved email '{email}' for {domain}? (Y/n): ").strip().lower()
+        if use_default == 'n':
+            email = input(f"Enter username/email for {domain}: ").strip()
+            
+    if not password:
+        password = input(f"Enter password for {domain}: ").strip()
+    else:
+        use_default = input(f"Use saved password for {domain}? (Y/n): ").strip().lower()
+        if use_default == 'n':
+            password = input(f"Enter password for {domain}: ").strip()
+            
     if not email or not password:
         print("Error: Email and password are required to run the agent.")
         return
 
-    # Determine Task
-    task_goal = args.task
-    if not task_goal:
-        print(f"\nTarget website: {target_url}")
-        print(f"Logged in as: {email}")
-        task_goal = input("\nWhat task would you like me to perform today? (e.g., 'Take the Day 13 Assessment' or 'Download Week 1 syllabus from Coursera'): ").strip()
-        
-    if not task_goal:
-        print("Error: A task description is required.")
-        return
+    # For Examly, check if COURSE_NAME and TARGET_DATE are present
+    course_name = ""
+    target_date = ""
+    if "examly" in domain.lower():
+        course_name = os.getenv("COURSE_NAME")
+        if not course_name:
+            course_name = input("Enter Examly course name: ").strip()
+            
+        target_date = os.getenv("TARGET_DATE")
+        # Try to parse target date from task goal (e.g. if task_goal contains "Day 14")
+        day_match = re.search(r"Day\s*\d+", task_goal, re.IGNORECASE)
+        if day_match:
+            parsed_date = day_match.group(0)
+            if not target_date or target_date != parsed_date:
+                use_parsed = input(f"Parsed '{parsed_date}' from task description. Use this as target date? (Y/n): ").strip().lower()
+                if use_parsed != 'n':
+                    target_date = parsed_date
+                    
+        if not target_date:
+            target_date = input("Enter target assessment date (e.g. Day 13): ").strip()
 
     # Load persistent agent memory
     agent_memory_content = "None"
@@ -152,9 +206,6 @@ async def main():
     """
     
     if is_examly:
-        course_name = os.getenv("COURSE_NAME", "2028_MBU_60 days Skill Development Assessment Course")
-        target_date = os.getenv("TARGET_DATE", "Day 13")
-        
         task_instructions += f"""
     === EXAMLY PLATFORM SPECIAL RULES ===
     CRITICAL RULE: DO NOT open new tabs to search for answers. Tab switching is strictly tracked by the platform and will cause the test to auto-submit and fail. Do everything within the primary tab.
@@ -244,7 +295,10 @@ async def main():
        if (submitBtn) submitBtn.disabled = false;
        ```
 
-    4. RECORDING BUGS & WORKAROUNDS:
+    4. ASK USER FOR CLARIFICATION:
+       If you encounter a coding question and the preferred programming language is not specified in the task description or previous memory, or if you run into any ambiguity or blocker that you cannot confidently solve on your own, you MUST call 'request_user_input' to ask the user (Sir) for clarification. The process will pause and wait for the user's response in the terminal. Do NOT try to guess.
+
+    5. RECORDING BUGS & WORKAROUNDS:
        If you encounter any new site-specific error, blocker, or element interaction bug, and you find a successful workaround or custom JS script to solve it, you MUST document the fix immediately by calling the tool 'save_agent_knowledge'. Specify the site name (domain), the error details, and the JS script that resolved it.
     """
 
