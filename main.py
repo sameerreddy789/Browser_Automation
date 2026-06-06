@@ -5,10 +5,16 @@ import logging
 import argparse
 import json
 import re
+import io
 
 from dotenv import load_dotenv
 from browser_use import Agent, ChatGoogle, Controller
 from browser_use.agent.views import ActionResult
+from browser_use.browser.session import BrowserSession
+from browser_use.browser.profile import BrowserProfile
+from google import genai
+from PIL import Image
+from python_ghost_cursor.playwright_async import create_cursor
 
 # Set up logging configuration
 logging.basicConfig(level=logging.INFO)
@@ -101,6 +107,74 @@ def save_agent_knowledge(site_name: str, error_description: str, solution_javasc
     
     return f"Fix for {site_name} already exists in persistent memory."
 
+@controller.action(
+    description="Solves a text-based image CAPTCHA on the current webpage by screenshotting the image element and using Gemini AI."
+)
+async def solve_captcha_image(image_selector: str, browser_session: BrowserSession) -> str:
+    try:
+        page = await browser_session.get_current_page()
+        element = await page.query_selector(image_selector)
+        if not element:
+            return f"Error: CAPTCHA image element with selector '{image_selector}' not found."
+            
+        screenshot_bytes = await element.screenshot()
+        image = Image.open(io.BytesIO(screenshot_bytes))
+        
+        client = genai.Client()
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[
+                image,
+                "Identify the alphanumeric characters in this CAPTCHA image. "
+                "Reply ONLY with the solved characters. Do not include spaces, "
+                "punctuation, or any introductory/explanatory text. If there are Persian/Farsi digits, "
+                "convert them to standard English digits. If no characters are clear, return an empty response."
+            ]
+        )
+        
+        solution = response.text.strip().replace(" ", "")
+        logging.info(f"🤖 [CAPTCHA SOLVER]: Solved CAPTCHA as '{solution}'")
+        return solution
+    except Exception as e:
+        logging.error(f"Error solving captcha: {e}")
+        return f"Error: Failed to solve CAPTCHA due to: {str(e)}"
+
+@controller.action(
+    description="Clicks on an element using a human-like curved mouse path (ghost cursor) to bypass anti-bot systems."
+)
+async def human_click(selector: str, browser_session: BrowserSession) -> str:
+    try:
+        page = await browser_session.get_current_page()
+        element = await page.query_selector(selector)
+        if not element:
+            return f"Error: Element with selector '{selector}' not found."
+            
+        cursor = await create_cursor(page)
+        await cursor.click(element)
+        logging.info(f"🖱️ [GHOST CURSOR]: Human-like click on '{selector}' completed.")
+        return f"Successfully clicked element '{selector}' using human-like cursor movements."
+    except Exception as e:
+        logging.error(f"Error in human_click: {e}")
+        return f"Error: Human-like click failed: {str(e)}"
+
+@controller.action(
+    description="Hovers over an element using a human-like curved mouse path (ghost cursor) to trigger hover behaviors."
+)
+async def human_hover(selector: str, browser_session: BrowserSession) -> str:
+    try:
+        page = await browser_session.get_current_page()
+        element = await page.query_selector(selector)
+        if not element:
+            return f"Error: Element with selector '{selector}' not found."
+            
+        cursor = await create_cursor(page)
+        await cursor.move_to(element)
+        logging.info(f"🖱️ [GHOST CURSOR]: Human-like hover on '{selector}' completed.")
+        return f"Successfully hovered over element '{selector}' using human-like cursor movements."
+    except Exception as e:
+        logging.error(f"Error in human_hover: {e}")
+        return f"Error: Human-like hover failed: {str(e)}"
+
 # Load environment variables
 load_dotenv()
 
@@ -113,6 +187,8 @@ async def main():
     parser.add_argument("--email", help="Login email")
     parser.add_argument("--password", help="Login password")
     parser.add_argument("--task", help="The goal or task description in plain English")
+    parser.add_argument("--headless", action="store_true", default=False, help="Run browser in headless mode")
+    parser.add_argument("--user-data-dir", default="./agent_profile", help="Path to save cookies/session persistently")
     args, unknown = parser.parse_known_args()
     
     # 1. Determine Target Website URL
@@ -296,9 +372,12 @@ async def main():
 
     5. RECORDING BUGS & WORKAROUNDS:
        If you encounter any new site-specific error, blocker, or element interaction bug, and you find a successful workaround or custom JS script to solve it, you MUST document the fix immediately by calling the tool 'save_agent_knowledge'. Specify the site name (domain), the error details, and the JS script that resolved it.
+
+    6. CAPTCHA & ANTI-BOT BYPASS PROTOCOLS:
+       If you encounter an image-based text CAPTCHA, locate the CAPTCHA image element and its corresponding text input field. Use the 'solve_captcha_image' action with the CAPTCHA image's selector to get the solved text, then input it into the text field. If the website has aggressive anti-bot protections (like Cloudflare, etc.), use the 'human_click' and 'human_hover' actions to interact with links, buttons, and inputs in a realistic, human-like manner rather than using default clicks/hovers.
     """
 
-    # Set up models: gemini-3.1-flash-lite as main, and gemini-2.5-flash as fallback for 503s
+    # Set up models: gemini-3.1-flash-lite as main, and gemini-1.5-flash as fallback for rate limits / 503s
     main_llm = ChatGoogle(
         model="gemini-3.1-flash-lite", 
         max_retries=5, 
@@ -306,18 +385,29 @@ async def main():
         retry_max_delay=30.0
     )
     fallback_llm = ChatGoogle(
-        model="gemini-2.5-flash", 
+        model="gemini-1.5-flash", 
         max_retries=5, 
         retry_base_delay=3.0, 
         retry_max_delay=30.0
     )
     llm = FallbackChatGoogle(main_llm, fallback_llm)
 
+    # Initialize BrowserProfile and BrowserSession
+    browser_profile = BrowserProfile(
+        headless=args.headless,
+        user_data_dir=args.user_data_dir,
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        disable_security=True,
+        args=["--disable-blink-features=AutomationControlled"]
+    )
+    browser = BrowserSession(browser_profile=browser_profile)
+
     # Initialize the agent
     agent = Agent(
         task=task_instructions,
         llm=llm,
         controller=controller,
+        browser=browser,
         max_failures=10,
         max_actions_per_step=5,
     )

@@ -9,4 +9,5 @@ dependencies = [
     "langchain-google-genai>=4.2.4",
     "playwright>=1.60.0",
     "python-dotenv>=1.2.2",
+    "python-ghost-cursor>=0.1.1",
 ]

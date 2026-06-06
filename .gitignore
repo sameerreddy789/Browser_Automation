@@ -9,3 +9,9 @@ wheels/
 # Virtual environments
 .venv
 .env
+
+# Local agent run artifacts
+agent_profile/
+agent_memory.json
+todo.md
+hackathons.md
