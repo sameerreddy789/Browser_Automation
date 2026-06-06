@@ -107,13 +107,25 @@ load_dotenv()
 async def main():
     print("\n--- AI Browser Agent Guided Intake Wizard ---")
     
-    # 1. Ask for Target Website URL
-    target_url = input("Enter target website URL [default: https://mbu931.examly.io/]: ").strip()
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description="General-Purpose Browser Automation Agent with Self-Healing Memory")
+    parser.add_argument("--url", help="Target website URL")
+    parser.add_argument("--email", help="Login email")
+    parser.add_argument("--password", help="Login password")
+    parser.add_argument("--task", help="The goal or task description in plain English")
+    args, unknown = parser.parse_known_args()
+    
+    # 1. Determine Target Website URL
+    target_url = args.url or os.getenv("TARGET_URL")
     if not target_url:
-        target_url = os.getenv("TARGET_URL") or "https://mbu931.examly.io/"
+        target_url = input("Enter target website URL [default: https://mbu931.examly.io/]: ").strip()
+    if not target_url:
+        target_url = "https://mbu931.examly.io/"
         
-    # 2. Ask for Task/Goal
-    task_goal = input("What task would you like to perform today? (e.g. 'Take the Day 13 Assessment'): ").strip()
+    # 2. Determine Task/Goal
+    task_goal = args.task
+    if not task_goal:
+        task_goal = input("What task would you like to perform today? (e.g. 'Take the Day 13 Assessment'): ").strip()
     while not task_goal:
         task_goal = input("Task is required. What would you like to do?: ").strip()
 
@@ -129,33 +141,22 @@ async def main():
     print(f"\nDetecting requirements for site: {domain}...")
     
     # 3. Gather Credentials based on site
-    # Check if we have credentials in .env first
     domain_prefix = domain.split('.')[0].upper()
     env_email_key = f"{domain_prefix}_EMAIL"
     env_pass_key = f"{domain_prefix}_PASSWORD"
     
-    # Fallback to standard EXAMLY credentials if it's Examly
     if "examly" in domain.lower():
-        email = os.getenv("EXAMLY_EMAIL")
-        password = os.getenv("EXAMLY_PASSWORD")
+        email = args.email or os.getenv("EXAMLY_EMAIL")
+        password = args.password or os.getenv("EXAMLY_PASSWORD")
     else:
-        email = os.getenv(env_email_key) or os.getenv("EXAMLY_EMAIL")
-        password = os.getenv(env_pass_key) or os.getenv("EXAMLY_PASSWORD")
+        email = args.email or os.getenv(env_email_key) or os.getenv("EXAMLY_EMAIL")
+        password = args.password or os.getenv(env_pass_key) or os.getenv("EXAMLY_PASSWORD")
         
-    # Ask for missing credentials or confirm overrides
+    # Only ask if completely missing
     if not email:
         email = input(f"Enter username/email for {domain}: ").strip()
-    else:
-        use_default = input(f"Use saved email '{email}' for {domain}? (Y/n): ").strip().lower()
-        if use_default == 'n':
-            email = input(f"Enter username/email for {domain}: ").strip()
-            
     if not password:
         password = input(f"Enter password for {domain}: ").strip()
-    else:
-        use_default = input(f"Use saved password for {domain}? (Y/n): ").strip().lower()
-        if use_default == 'n':
-            password = input(f"Enter password for {domain}: ").strip()
             
     if not email or not password:
         print("Error: Email and password are required to run the agent.")
@@ -170,15 +171,10 @@ async def main():
             course_name = input("Enter Examly course name: ").strip()
             
         target_date = os.getenv("TARGET_DATE")
-        # Try to parse target date from task goal (e.g. if task_goal contains "Day 14")
         day_match = re.search(r"Day\s*\d+", task_goal, re.IGNORECASE)
         if day_match:
             parsed_date = day_match.group(0)
-            if not target_date or target_date != parsed_date:
-                use_parsed = input(f"Parsed '{parsed_date}' from task description. Use this as target date? (Y/n): ").strip().lower()
-                if use_parsed != 'n':
-                    target_date = parsed_date
-                    
+            target_date = parsed_date
         if not target_date:
             target_date = input("Enter target assessment date (e.g. Day 13): ").strip()
 
