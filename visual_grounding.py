@@ -19,13 +19,13 @@ Usage:
 
 import base64
 import json
-import logging
+from loguru import logger
 import re
 from typing import Optional
 
 from google import genai
 
-logger = logging.getLogger("browser_use.visual_grounding")
+logger = logger.getLogger("browser_use.visual_grounding")
 
 # Gemini client (uses GOOGLE_API_KEY from environment automatically)
 _client = None

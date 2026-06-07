@@ -15,12 +15,8 @@ Usage:
     html = stealth_http_get("https://example.com")
 """
 
-import logging
-from typing import Optional
-
+from loguru import logger
 from playwright_stealth import Stealth
-
-logger = logging.getLogger("browser_use.stealth")
 
 # Create a single Stealth instance for reuse
 _stealth = Stealth()

@@ -22,12 +22,12 @@ Usage:
 
 import asyncio
 import base64
-import logging
+from loguru import logger
 import os
 import time
 from typing import Optional
 
-logger = logging.getLogger("browser_use.hitl")
+logger = logger.getLogger("browser_use.hitl")
 
 # How often to check PocketBase for user responses (in seconds)
 POLL_INTERVAL = 2.0

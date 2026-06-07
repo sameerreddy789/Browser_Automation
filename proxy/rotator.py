@@ -20,12 +20,12 @@ Usage:
     browser_profile = BrowserProfile(proxy=proxy_config, ...)
 """
 
-import logging
+from loguru import logger
 import os
 from urllib.parse import urlparse
 from typing import Optional
 
-logger = logging.getLogger("browser_use.proxy")
+logger = logger.getLogger("browser_use.proxy")
 
 
 class ProxyRotator:

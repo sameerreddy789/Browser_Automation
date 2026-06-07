@@ -21,12 +21,12 @@ Usage:
 """
 
 import json
-import logging
+from loguru import logger
 import os
 from datetime import datetime
 from typing import Optional
 
-logger = logging.getLogger("browser_use.session_store")
+logger = logger.getLogger("browser_use.session_store")
 
 # Directory for local JSON fallback storage
 SESSIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sessions")

@@ -1,7 +1,6 @@
 import os
 import sys
 import asyncio
-import logging
 import argparse
 import json
 import re
@@ -22,9 +21,11 @@ from visual_grounding import click_element_visually, find_element_coordinates, v
 from session_store import SessionStore
 from proxy import ProxyRotator
 from hitl import HITLClient
+from memory_manager import memory_manager
+from parsers.crawlee_parser import extract_page_data_crawlee
 
 # Set up logging configuration
-logging.basicConfig(level=logging.INFO)
+from loguru import logger
 
 class FallbackChatGoogle:
     """
@@ -37,7 +38,7 @@ class FallbackChatGoogle:
         self.main_llm = main_llm
         self.fallback_llm = fallback_llm
         self.model = main_llm.model
-        self.logger = logging.getLogger("browser_use.fallback_chat_google")
+        self.logger = logger.getLogger("browser_use.fallback_chat_google")
 
     @property
     def provider(self) -> str:
@@ -85,34 +86,9 @@ async def request_user_input(question_prompt: str) -> str:
                 "or interact with a complex editor using custom JS."
 )
 def save_agent_knowledge(site_name: str, error_description: str, solution_javascript: str) -> str:
-    import json
-    import os
-    
-    file_path = "agent_memory.json"
-    memory = {}
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                memory = json.load(f)
-        except Exception:
-            pass
-            
-    if site_name not in memory:
-        memory[site_name] = []
-        
-    # Prevent duplicate saves of the same JS solution for the same error
-    existing_fixes = memory[site_name]
-    if not any(f.get("fix_js") == solution_javascript for f in existing_fixes):
-        memory[site_name].append({
-            "error": error_description,
-            "fix_js": solution_javascript
-        })
-        
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(memory, f, indent=4)
-        return f"Successfully saved knowledge for {site_name}. It will be loaded automatically on next run."
-    
-    return f"Fix for {site_name} already exists in persistent memory."
+    observation = f"Error: {error_description}. Fix script: {solution_javascript}"
+    memory_manager.store_knowledge(site_name, observation)
+    return f"Successfully saved knowledge for {site_name}. It will be loaded automatically on next run."
 
 @controller.action(
     description="Solves a text-based image CAPTCHA on the current webpage by screenshotting the image element and using Gemini AI."
@@ -140,10 +116,10 @@ async def solve_captcha_image(image_selector: str, browser_session: BrowserSessi
         )
         
         solution = response.text.strip().replace(" ", "")
-        logging.info(f"🤖 [CAPTCHA SOLVER]: Solved CAPTCHA as '{solution}'")
+        logger.info(f"🤖 [CAPTCHA SOLVER]: Solved CAPTCHA as '{solution}'")
         return solution
     except Exception as e:
-        logging.error(f"Error solving captcha: {e}")
+        logger.error(f"Error solving captcha: {e}")
         return f"Error: Failed to solve CAPTCHA due to: {str(e)}"
 
 @controller.action(
@@ -158,10 +134,10 @@ async def human_click(selector: str, browser_session: BrowserSession) -> str:
             
         cursor = await create_cursor(page)
         await cursor.click(element)
-        logging.info(f"🖱️ [GHOST CURSOR]: Human-like click on '{selector}' completed.")
+        logger.info(f"🖱️ [GHOST CURSOR]: Human-like click on '{selector}' completed.")
         return f"Successfully clicked element '{selector}' using human-like cursor movements."
     except Exception as e:
-        logging.error(f"Error in human_click: {e}")
+        logger.error(f"Error in human_click: {e}")
         return f"Error: Human-like click failed: {str(e)}"
 
 @controller.action(
@@ -176,10 +152,10 @@ async def human_hover(selector: str, browser_session: BrowserSession) -> str:
             
         cursor = await create_cursor(page)
         await cursor.move_to(element)
-        logging.info(f"🖱️ [GHOST CURSOR]: Human-like hover on '{selector}' completed.")
+        logger.info(f"🖱️ [GHOST CURSOR]: Human-like hover on '{selector}' completed.")
         return f"Successfully hovered over element '{selector}' using human-like cursor movements."
     except Exception as e:
-        logging.error(f"Error in human_hover: {e}")
+        logger.error(f"Error in human_hover: {e}")
         return f"Error: Human-like hover failed: {str(e)}"
 
 # ── Visual Grounding Actions ──────────────────────────────────────────────────
@@ -198,7 +174,7 @@ async def visual_click(element_description: str, browser_session: BrowserSession
         else:
             return f"Could not find '{element_description}' on the page visually."
     except Exception as e:
-        logging.error(f"Error in visual_click: {e}")
+        logger.error(f"Error in visual_click: {e}")
         return f"Error: Visual click failed: {str(e)}"
 
 @controller.action(
@@ -214,8 +190,21 @@ async def visual_find(element_description: str, browser_session: BrowserSession)
         else:
             return f"Could not find '{element_description}' on the page."
     except Exception as e:
-        logging.error(f"Error in visual_find: {e}")
+        logger.error(f"Error in visual_find: {e}")
         return f"Error: Visual find failed: {str(e)}"
+
+@controller.action(
+    description="Extracts all text data efficiently from a specific CSS selector using Crawlee. "
+                "Use this when you need to read a lot of text or scrape a list without taking screenshots."
+)
+async def scrape_text_data(url: str, selector: str = "body") -> str:
+    try:
+        logger.info(f"🕸️ Extracting text from {url} using selector {selector}")
+        data = await extract_page_data_crawlee(url, selector)
+        return f"Extracted Data:\n{data[:2000]}...\n[Truncated if too long]"
+    except Exception as e:
+        logger.error(f"Error in scrape_text_data: {e}")
+        return f"Error: Scraping failed: {str(e)}"
 
 @controller.action(
     description="Scrolls the page until a described element becomes visible. "
@@ -230,7 +219,7 @@ async def visual_scroll(element_description: str, browser_session: BrowserSessio
         else:
             return f"Could not find '{element_description}' after scrolling the entire page."
     except Exception as e:
-        logging.error(f"Error in visual_scroll: {e}")
+        logger.error(f"Error in visual_scroll: {e}")
         return f"Error: Visual scroll failed: {str(e)}"
 
 @controller.action(
@@ -243,7 +232,7 @@ async def visual_describe_page(browser_session: BrowserSession) -> str:
         description = await describe_page_visually(page)
         return f"Page description: {description}"
     except Exception as e:
-        logging.error(f"Error in visual_describe_page: {e}")
+        logger.error(f"Error in visual_describe_page: {e}")
         return f"Error: Could not describe page: {str(e)}"
 
 # ── HITL (Human-in-the-Loop) Action ───────────────────────────────────────────
@@ -277,7 +266,7 @@ async def pause_for_human_help(reason: str, browser_session: BrowserSession) -> 
             response = await asyncio.to_thread(input, "👉 Your Response: ")
             return f"User responded: {response.strip()}"
     except Exception as e:
-        logging.error(f"Error in pause_for_human_help: {e}")
+        logger.error(f"Error in pause_for_human_help: {e}")
         return f"Error: HITL pause failed: {str(e)}"
 
 # Load environment variables
@@ -296,6 +285,7 @@ async def main():
     parser.add_argument("--user-data-dir", default="./agent_profile", help="Path to save cookies/session persistently")
     parser.add_argument("--restore-session", type=str, default=None, help="Restore a previously saved session by ID")
     parser.add_argument("--no-stealth", action="store_true", default=False, help="Disable stealth/anti-detection mode")
+    parser.add_argument("--queue", action="store_true", default=False, help="Dispatch task to Taskiq Redis worker queue instead of running locally")
     args, unknown = parser.parse_known_args()
     
     # 1. Determine Target Website URL
@@ -362,15 +352,9 @@ async def main():
             target_date = input("Enter target assessment date (e.g. Day 13): ").strip()
 
     # Load persistent agent memory
-    agent_memory_content = "None"
-    memory_file = "agent_memory.json"
-    if os.path.exists(memory_file):
-        try:
-            with open(memory_file, "r", encoding="utf-8") as f:
-                memory_data = json.load(f)
-                agent_memory_content = json.dumps(memory_data, indent=2)
-        except Exception:
-            pass
+    agent_memory_content = memory_manager.get_relevant_knowledge(domain)
+    if not agent_memory_content:
+        agent_memory_content = "None"
 
     # Check if the website is Examly to append specialized guidelines
     is_examly = "examly.io" in target_url.lower()
@@ -563,8 +547,18 @@ async def main():
     if not args.no_stealth:
         print("🛡️  Stealth mode: ENABLED (anti-bot protections active)")
     
-    # Run the agent
-    result = await agent.run()
+    # Run the agent (either locally or via Taskiq worker queue)
+    if args.queue:
+        from tasks import broker, run_browser_agent_task
+        print("📦 Dispatching job to Taskiq Redis queue...")
+        await broker.startup()
+        task = await run_browser_agent_task.kiq(task_instructions, target_url)
+        print(f"✅ Job enqueued successfully. Task ID: {task.task_id}")
+        print("💡 Ensure you have a Taskiq worker running: 'taskiq worker tasks:broker'")
+        await broker.shutdown()
+        return
+    else:
+        result = await agent.run()
     
     # ── Post-Run: Backup Session ─────────────────────────────────────────────
     try:
@@ -574,7 +568,7 @@ async def main():
         await session_store.backup_session(browser_context, session_id)
         print(f"💾 Session backed up as '{session_id}'")
     except Exception as e:
-        logging.warning(f"Could not backup session: {e}")
+        logger.warning(f"Could not backup session: {e}")
     
     # ── Update HITL State ────────────────────────────────────────────────────
     print("\n--- Agent Execution Finished ---")

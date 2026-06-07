@@ -56,9 +56,21 @@ A local **Streamlit** web dashboard connected to **PocketBase** for real-time mo
 - Sends it to Gemini for OCR — no suspicious external API calls.
 - Supports alphanumeric and Persian/Farsi digit CAPTCHAs.
 
-### 🧠 Self-Healing Memory
-- Successful workarounds (custom JS to dismiss overlays, enable buttons, write to Monaco editors) are saved to `agent_memory.json`.
-- On subsequent runs, the agent automatically applies known fixes before getting stuck.
+### 🧠 Adaptive Memory (Mem0)
+- The agent utilizes `mem0ai` as a long-term vector database (ChromaDB) to map and track user preferences and successful DOM interactions.
+- Successfully learned site-specific logic and Javascript workarounds persist dynamically across tasks without bloated JSON states.
+
+### ⚡ Distributed Asynchronous Queue (Taskiq)
+- Optional Taskiq integration to isolate the Playwright browser context into an independent asynchronous Python worker task.
+- Enqueue jobs seamlessly backed by Redis.
+
+### 📝 Comprehensive Logging (Loguru)
+- Advanced JSON-based structured logging deployed across all automation workers via `loguru`.
+- Enables rapid granular diagnostics of LLM reasoning, proxy rotation, and network interception.
+
+### 🕸️ Token-Efficient Parsing (Crawlee)
+- Integrates `crawlee` when massive text data or lists need to be extracted efficiently.
+- Bypasses expensive screenshot ingestion and LLM coordinate hallucinations for purely structural data extraction.
 
 ### 🔀 Dual LLM Fallback
 - Primary: `gemini-3.1-flash-lite` (fast, cheap).
@@ -146,6 +158,7 @@ uv run python main.py \
 | `--user-data-dir` | Browser profile path (default: `./agent_profile`) |
 | `--restore-session` | Restore a saved session by ID (e.g., `examly_io`) |
 | `--no-stealth` | Disable anti-bot stealth mode |
+| `--queue` | Dispatch task to Taskiq Redis worker queue instead of running locally |
 
 ### Launcher Flags (run.py only)
 | Flag | Description |
@@ -164,14 +177,20 @@ Browser_Automation/
 ├── stealth.py                 # Anti-bot: playwright-stealth, curl_cffi, browser args
 ├── visual_grounding.py        # Gemini vision: find/click elements by screenshot
 ├── session_store.py           # Redis/JSON session backup and restore
+├── memory_manager.py          # Mem0 long-term graph/vector memory integration
+├── tasks.py                   # Taskiq asynchronous Redis worker queue definitions
 ├── hitl/                      # Human-in-the-Loop system
 │   ├── pocketbase_client.py   # Bot ↔ PocketBase state management
 │   ├── dashboard.py           # Streamlit monitoring dashboard
 │   └── setup_pocketbase.py    # One-time PocketBase download & setup
 ├── proxy/                     # Proxy management
-│   └── rotator.py             # Round-robin proxy pool with dead tracking
+│   ├── rotator.py             # Round-robin proxy pool with dead tracking
+│   └── mitm_addon.py          # mitmproxy addon for programmatic evasion and telemetry blocking
+├── parsers/                   # Alternate data parsing engines
+│   └── crawlee_parser.py      # Token-efficient DOM extraction using crawlee
 ├── agent_profile/             # Persistent Chromium profile (git-ignored)
 ├── sessions/                  # Local JSON session backups (git-ignored)
+├── agent_mem0_db/             # Local ChromaDB vector database for Mem0 (git-ignored)
 ├── pyproject.toml             # Python dependencies (managed by uv)
 └── .env                       # Environment config (git-ignored)
 ```
