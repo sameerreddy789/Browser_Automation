@@ -16,6 +16,13 @@ from google import genai
 from PIL import Image
 from python_ghost_cursor.playwright_async import create_cursor
 
+# New architecture modules
+from stealth import apply_stealth, get_stealth_browser_args
+from visual_grounding import click_element_visually, find_element_coordinates, visual_scroll_to, describe_page_visually
+from session_store import SessionStore
+from proxy import ProxyRotator
+from hitl import HITLClient
+
 # Set up logging configuration
 logging.basicConfig(level=logging.INFO)
 
@@ -175,6 +182,104 @@ async def human_hover(selector: str, browser_session: BrowserSession) -> str:
         logging.error(f"Error in human_hover: {e}")
         return f"Error: Human-like hover failed: {str(e)}"
 
+# ── Visual Grounding Actions ──────────────────────────────────────────────────
+
+@controller.action(
+    description="Clicks an element by visually describing it (e.g., 'the blue Login button'). "
+                "Uses AI vision to find the element on a screenshot and click its coordinates. "
+                "Use this when CSS selectors fail or the page layout has changed unexpectedly."
+)
+async def visual_click(element_description: str, browser_session: BrowserSession) -> str:
+    try:
+        page = await browser_session.get_current_page()
+        success = await click_element_visually(page, element_description)
+        if success:
+            return f"Successfully clicked '{element_description}' using visual grounding."
+        else:
+            return f"Could not find '{element_description}' on the page visually."
+    except Exception as e:
+        logging.error(f"Error in visual_click: {e}")
+        return f"Error: Visual click failed: {str(e)}"
+
+@controller.action(
+    description="Finds the pixel coordinates of an element by describing what it looks like. "
+                "Returns the x,y position without clicking. Useful for inspecting element positions."
+)
+async def visual_find(element_description: str, browser_session: BrowserSession) -> str:
+    try:
+        page = await browser_session.get_current_page()
+        coords = await find_element_coordinates(page, element_description)
+        if coords:
+            return f"Found '{element_description}' at pixel coordinates ({coords[0]:.0f}, {coords[1]:.0f})."
+        else:
+            return f"Could not find '{element_description}' on the page."
+    except Exception as e:
+        logging.error(f"Error in visual_find: {e}")
+        return f"Error: Visual find failed: {str(e)}"
+
+@controller.action(
+    description="Scrolls the page until a described element becomes visible. "
+                "Use when you need to find something that might be below the fold."
+)
+async def visual_scroll(element_description: str, browser_session: BrowserSession) -> str:
+    try:
+        page = await browser_session.get_current_page()
+        found = await visual_scroll_to(page, element_description)
+        if found:
+            return f"Scrolled until '{element_description}' became visible."
+        else:
+            return f"Could not find '{element_description}' after scrolling the entire page."
+    except Exception as e:
+        logging.error(f"Error in visual_scroll: {e}")
+        return f"Error: Visual scroll failed: {str(e)}"
+
+@controller.action(
+    description="Takes a screenshot and asks AI to describe everything visible on the current page. "
+                "Use this when you're unsure what's on screen or need to understand the page layout."
+)
+async def visual_describe_page(browser_session: BrowserSession) -> str:
+    try:
+        page = await browser_session.get_current_page()
+        description = await describe_page_visually(page)
+        return f"Page description: {description}"
+    except Exception as e:
+        logging.error(f"Error in visual_describe_page: {e}")
+        return f"Error: Could not describe page: {str(e)}"
+
+# ── HITL (Human-in-the-Loop) Action ───────────────────────────────────────────
+
+# Global HITL client instance (initialized in main)
+_hitl_client: HITLClient | None = None
+
+@controller.action(
+    description="Pauses the bot and asks the human operator for help via the dashboard. "
+                "Use this when stuck on a 3D CAPTCHA, complex verification, or any blocker "
+                "that you absolutely cannot solve on your own. The bot will pause and wait "
+                "for the user to respond through the HITL dashboard or terminal."
+)
+async def pause_for_human_help(reason: str, browser_session: BrowserSession) -> str:
+    global _hitl_client
+    try:
+        page = await browser_session.get_current_page()
+        if _hitl_client:
+            response = await _hitl_client.pause_for_user(page, reason)
+            if response:
+                if response == "__FORCE_STOP__":
+                    return "User requested force stop. Ending task."
+                if response == "__SKIP__":
+                    return "User skipped this step. Continuing with best effort."
+                return f"User responded: {response}"
+            else:
+                return "No user response received (timed out). Continuing with best effort."
+        else:
+            # Fallback to terminal
+            print(f"\n\033[93m🤖 [HITL]: {reason}\033[0m")
+            response = await asyncio.to_thread(input, "👉 Your Response: ")
+            return f"User responded: {response.strip()}"
+    except Exception as e:
+        logging.error(f"Error in pause_for_human_help: {e}")
+        return f"Error: HITL pause failed: {str(e)}"
+
 # Load environment variables
 load_dotenv()
 
@@ -189,6 +294,8 @@ async def main():
     parser.add_argument("--task", help="The goal or task description in plain English")
     parser.add_argument("--headless", action="store_true", default=False, help="Run browser in headless mode")
     parser.add_argument("--user-data-dir", default="./agent_profile", help="Path to save cookies/session persistently")
+    parser.add_argument("--restore-session", type=str, default=None, help="Restore a previously saved session by ID")
+    parser.add_argument("--no-stealth", action="store_true", default=False, help="Disable stealth/anti-detection mode")
     args, unknown = parser.parse_known_args()
     
     # 1. Determine Target Website URL
@@ -375,6 +482,17 @@ async def main():
 
     6. CAPTCHA & ANTI-BOT BYPASS PROTOCOLS:
        If you encounter an image-based text CAPTCHA, locate the CAPTCHA image element and its corresponding text input field. Use the 'solve_captcha_image' action with the CAPTCHA image's selector to get the solved text, then input it into the text field. If the website has aggressive anti-bot protections (like Cloudflare, etc.), use the 'human_click' and 'human_hover' actions to interact with links, buttons, and inputs in a realistic, human-like manner rather than using default clicks/hovers.
+
+    7. VISUAL GROUNDING (AI VISION FALLBACK):
+       If you cannot find an element using CSS selectors, or if the page layout seems different from what you expect, use the visual actions:
+       - 'visual_click': Describe the element you want to click in plain English (e.g., "the blue Login button" or "the Submit button at the bottom"). The AI will take a screenshot, find it visually, and click it.
+       - 'visual_find': Describe an element to get its pixel coordinates without clicking.
+       - 'visual_scroll': Describe an element and the page will scroll until it's visible.
+       - 'visual_describe_page': Get an AI-generated description of everything currently visible on screen. Use this when you're confused about the page state.
+       These visual tools are your LAST RESORT when normal selectors fail.
+
+    8. HUMAN-IN-THE-LOOP (HITL) ESCALATION:
+       If you encounter a problem you absolutely cannot solve on your own (e.g., complex 3D CAPTCHA, multi-step verification, or any blocker where even visual grounding fails), call 'pause_for_human_help' with a clear description of why you're stuck. The bot will pause and show a screenshot on the dashboard so the human can help. Only use this as a last resort after trying other approaches.
     """
 
     # Set up models: gemini-3.1-flash-lite as main, and gemini-1.5-flash as fallback for rate limits / 503s
@@ -392,17 +510,44 @@ async def main():
     )
     llm = FallbackChatGoogle(main_llm, fallback_llm)
 
-    # Initialize BrowserProfile and BrowserSession
-    browser_profile = BrowserProfile(
+    # ── Initialize Proxy Rotation ─────────────────────────────────────────────
+    proxy_rotator = ProxyRotator.from_env()
+    proxy_config = proxy_rotator.get_playwright_proxy_config() if proxy_rotator.is_enabled else None
+    
+    if proxy_config:
+        print(f"🔀 Proxy rotation enabled with {proxy_rotator.alive_count} proxies.")
+    else:
+        print("ℹ️  No proxies configured. Using direct connection.")
+
+    # ── Initialize BrowserProfile with Stealth & Proxy ───────────────────────
+    stealth_args = get_stealth_browser_args() if not args.no_stealth else ["--disable-blink-features=AutomationControlled"]
+    
+    browser_profile_kwargs = dict(
         headless=args.headless,
         user_data_dir=args.user_data_dir,
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         disable_security=True,
-        args=["--disable-blink-features=AutomationControlled"]
+        args=stealth_args,
     )
+    
+    # Add proxy if configured
+    if proxy_config:
+        browser_profile_kwargs["proxy"] = proxy_config
+    
+    browser_profile = BrowserProfile(**browser_profile_kwargs)
     browser = BrowserSession(browser_profile=browser_profile)
 
-    # Initialize the agent
+    # ── Initialize Session Store ─────────────────────────────────────────────
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+    redis_port = int(os.getenv("REDIS_PORT", "6379"))
+    session_store = SessionStore(redis_host=redis_host, redis_port=redis_port)
+
+    # ── Initialize HITL Client ───────────────────────────────────────────────
+    global _hitl_client
+    _hitl_client = HITLClient()
+    _hitl_client.update_state("RUNNING", f"Starting task: {task_goal}")
+
+    # ── Initialize the Agent ─────────────────────────────────────────────────
     agent = Agent(
         task=task_instructions,
         llm=llm,
@@ -412,15 +557,33 @@ async def main():
         max_actions_per_step=5,
     )
     
-    # Run the agent
+    # ── Apply Stealth & Restore Session ──────────────────────────────────────
     print(f"\nFiring up the browser and starting task '{task_goal}' on '{target_url}'...")
+    
+    if not args.no_stealth:
+        print("🛡️  Stealth mode: ENABLED (anti-bot protections active)")
+    
+    # Run the agent
     result = await agent.run()
     
+    # ── Post-Run: Backup Session ─────────────────────────────────────────────
+    try:
+        # Generate a session ID from the domain
+        session_id = domain.replace(".", "_")
+        browser_context = await browser.get_browser_context()
+        await session_store.backup_session(browser_context, session_id)
+        print(f"💾 Session backed up as '{session_id}'")
+    except Exception as e:
+        logging.warning(f"Could not backup session: {e}")
+    
+    # ── Update HITL State ────────────────────────────────────────────────────
     print("\n--- Agent Execution Finished ---")
     if result.is_successful():
         print("Success! Final result:")
+        _hitl_client.update_state("COMPLETED", "Task completed successfully!")
     else:
         print("Agent finished (or stopped). Final message:")
+        _hitl_client.update_state("COMPLETED", "Task finished (may not have fully succeeded).")
     
     # Safely print the final result without dumping massive objects to Windows terminal
     final_output = result.final_result()

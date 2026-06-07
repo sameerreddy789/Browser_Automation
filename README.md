@@ -1,99 +1,183 @@
 # 🤖 Browser Automation Agent
 
-A general-purpose, self-healing browser automation agent built on top of [browser-use](https://github.com/browser-use/browser-use). It is designed to navigate complex websites, solve captchas, mimic human interaction to bypass anti-bot detections, and dynamically request clarification from the user when stuck.
+A general-purpose, self-healing browser automation agent powered by [browser-use](https://github.com/browser-use/browser-use) and Google Gemini. Give it a website and a task in plain English — it opens a real browser, navigates pages, fills forms, solves CAPTCHAs, and completes the job autonomously.
+
+Built with a layered defense system: **stealth anti-bot evasion**, **AI-powered visual grounding**, **human-in-the-loop fallback**, **proxy rotation**, and **persistent session storage** — making it resilient against modern bot detection, layout changes, and IP blocks.
 
 ---
 
-## 🚀 Key Features & Agent Skills
+## ✨ What It Does
 
-This browser agent is equipped with several custom capabilities (skills) integrated into the automation flow:
+1. **You describe a task** — *"Log into Examly, take the Day 13 Assessment, answer all questions, and submit."*
+2. **The agent opens a real Chromium browser** with stealth protections enabled (hidden automation flags, spoofed fingerprints).
+3. **It navigates, clicks, types, and reads pages** using an AI brain (Gemini) that decides what to do next at every step.
+4. **When selectors break**, it falls back to **visual grounding** — takes a screenshot, asks Gemini *"where is the Login button?"*, and clicks the coordinates.
+5. **When it gets completely stuck** (3D CAPTCHA, complex verification), it **pauses and alerts you** via a live dashboard so you can help.
+6. **Sessions persist across runs** — cookies are saved so you don't re-login every time.
 
-### 1. 📂 Persistent Session Storage
-- Automatically launching Chromium with a persistent browser profile (`./agent_profile`).
-- Saves cookies, session details, and local storage variables between consecutive runs. This avoids needing to log in repeatedly on target websites.
+---
 
-### 2. 🛡️ Anti-Bot & Automation Bypass
-- **Automation Detection Shield**: Launches Chrome with `--disable-blink-features=AutomationControlled` arguments to bypass default bot detection.
-- **Spoofed User-Agent**: Impersonates a real human browser with a modern User-Agent header string.
-- **Human Cursor Emulation**: Uses `python-ghost-cursor` to generate realistic, curved Bezier mouse paths for clicking (`human_click`) and hovering (`human_hover`) rather than teleporting the cursor.
+## 🚀 Key Features
 
-### 3. 🧩 AI Captcha Solver
-- Exposes `solve_captcha_image` custom action.
-- Directly screenshots the CAPTCHA element inside Playwright and utilizes the Gemini API to resolve alphanumeric characters without making extra, suspicious HTTP requests.
+### 🛡️ Anti-Bot & Stealth Engine
+- **playwright-stealth v2**: Injects scripts to hide `navigator.webdriver`, patch plugins/languages, and pass bot-detection tests.
+- **TLS Fingerprint Impersonation**: Uses `curl_cffi` for HTTP requests that mimic Chrome's exact JA3/JA4 TLS handshake — Cloudflare/Akamai can't distinguish them from real browsers.
+- **Human Cursor Emulation**: `python-ghost-cursor` generates realistic Bezier-curve mouse paths for clicks and hovers.
+- **Stealth Browser Args**: Disables automation-revealing Chromium features (`AutomationControlled`, infobars, etc.).
 
-### 4. 🧠 Self-Healing Site Knowledge
-- Automatically loads and applies persistent site fixes from `agent_memory.json`.
-- The agent writes custom javascript workarounds (e.g., dismissing stubborn overlays, enabling disabled buttons, writing code directly to Monaco editors) using `save_agent_knowledge` to heal itself on subsequent runs.
+### 🎯 Visual Grounding (AI Vision)
+When CSS selectors fail (website redesigns, dynamic content), the agent "sees" the page:
+- **`visual_click`** — Describe the element in plain English (*"the blue Submit button"*), and the AI finds and clicks it by screenshot.
+- **`visual_find`** — Get pixel coordinates of any described element.
+- **`visual_scroll`** — Scroll until a described element appears.
+- **`visual_describe_page`** — Get a full AI description of what's on screen.
 
-### 5. 💬 Non-Blocking Console Clarifications
-- Implements `request_user_input` custom action.
-- If the agent faces a coding question with an unspecified language, or runs into any ambiguity, it pauses execution and prompts you in the terminal.
-- Uses a background worker thread (`asyncio.to_thread`) to handle console inputs, keeping the main Playwright loop and WebSocket browser connection fully alive without timing out.
+### 🤝 Human-in-the-Loop (HITL) Dashboard
+A local **Streamlit** web dashboard connected to **PocketBase** for real-time monitoring and intervention:
+- Live screenshot stream of the bot's current view.
+- Bot pauses automatically when stuck (complex CAPTCHAs, verification).
+- Text input for you to type CAPTCHA solutions or instructions.
+- Emergency controls (force stop, reset state).
+- Falls back to terminal input if the dashboard isn't running.
 
-### 6. 🔀 Dual LLM Fallback Engine
-- Employs a custom `FallbackChatGoogle` client.
-- Uses the state-of-the-art `gemini-3.1-flash-lite` model as the primary driver.
-- If Gemini 3.1 experiences a 503 high demand spike, it gracefully falls back to `gemini-1.5-flash` to ensure the task finishes successfully.
+### 🔀 Proxy Rotation
+- Configure a pool of proxies in `.env` — the agent rotates through them per-session.
+- Dead proxy tracking: failed proxies are automatically skipped.
+- Uses Playwright's native proxy support (no mitmproxy dependency).
+- Gracefully falls back to direct connection when no proxies are configured.
+
+### 💾 Persistent Session Storage
+- **Browser Profile Persistence**: Chromium profile saved to `./agent_profile` — cookies, localStorage, and session data survive restarts.
+- **Redis + JSON Backup**: After each run, cookies are backed up to Redis (if available) or local JSON files. Restore with `--restore-session`.
+- Sessions are shareable across machines via Redis.
+
+### 🧩 AI CAPTCHA Solver
+- Screenshots the CAPTCHA element directly inside Playwright.
+- Sends it to Gemini for OCR — no suspicious external API calls.
+- Supports alphanumeric and Persian/Farsi digit CAPTCHAs.
+
+### 🧠 Self-Healing Memory
+- Successful workarounds (custom JS to dismiss overlays, enable buttons, write to Monaco editors) are saved to `agent_memory.json`.
+- On subsequent runs, the agent automatically applies known fixes before getting stuck.
+
+### 🔀 Dual LLM Fallback
+- Primary: `gemini-3.1-flash-lite` (fast, cheap).
+- Fallback: `gemini-1.5-flash` (if primary hits rate limits or 503s).
+- Seamless switching — no task interruption.
 
 ---
 
 ## 🛠️ Setup & Installation
 
-Ensure you have Python 3.13+ and [uv](https://github.com/astral-sh/uv) installed.
+**Requirements**: Python 3.13+ and [uv](https://github.com/astral-sh/uv).
 
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/sameerreddy789/Browser_Automation.git
-   cd Browser_Automation
-   ```
+### 1. Clone & Install
 
-2. **Sync Dependencies**:
-   Initialize the virtual environment and sync dependencies:
-   ```bash
-   uv sync
-   ```
+```bash
+git clone https://github.com/sameerreddy789/Browser_Automation.git
+cd Browser_Automation
+uv sync
+```
 
-3. **Configure Environment Variables**:
-   Create a `.env` file in the root directory:
-   ```env
-   GEMINI_API_KEY=your_gemini_api_key
-   EXAMLY_EMAIL=your_examly_email
-   EXAMLY_PASSWORD=your_examly_password
-   COURSE_NAME="Your Examly Course Name"
-   TARGET_DATE="Day 13"
-   ```
+### 2. Configure Environment
+
+Create a `.env` file (see [.env.example](.env.example)):
+
+```env
+# Required
+GOOGLE_API_KEY=your_gemini_api_key
+
+# Credentials (per-site)
+EXAMLY_EMAIL=your_email
+EXAMLY_PASSWORD=your_password
+COURSE_NAME="2028_MBU..."
+TARGET_DATE="Day 5"
+
+# Optional: Proxy rotation (comma-separated)
+PROXY_LIST=http://user:pass@proxy1.com:8000,http://user:pass@proxy2.com:8000
+
+# Optional: Redis for session sync
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# Optional: PocketBase for HITL dashboard
+POCKETBASE_URL=http://127.0.0.1:8090
+```
+
+### 3. Set Up HITL Dashboard (Optional)
+
+```bash
+# Download PocketBase and create the required collection
+python hitl/setup_pocketbase.py
+```
 
 ---
 
 ## 💻 Running the Agent
 
-You can start the guided intake wizard by running:
+### Quick Start (All Services)
+```bash
+# Launches PocketBase + Streamlit Dashboard + Agent
+python run.py --url "https://example.com" --task "Do something"
+```
+
+### Agent Only
 ```powershell
-# For Windows PowerShell (to support Unicode characters like Rupee symbol)
+# Windows PowerShell (Unicode support)
 $env:PYTHONUTF8="1"; uv run python main.py
 ```
 
 ### Command Line Arguments
-You can also pass arguments directly to bypass the intake wizard prompts:
 ```bash
 uv run python main.py \
-  --url "https://hack2skill.com/" \
-  --task "Find and list active online hackathons." \
-  --headless
+  --url "https://example.com" \
+  --task "Find and list active hackathons" \
+  --headless \
+  --restore-session example_com
 ```
 
-- `--url`: Target website URL.
-- `--task`: Plain English task description.
-- `--email`: Login email (optional).
-- `--password`: Login password (optional).
-- `--headless`: Run the browser in invisible headless mode (defaults to headful/visible).
-- `--user-data-dir`: Custom path to save browser session files (defaults to `./agent_profile`).
+| Flag | Description |
+|------|-------------|
+| `--url` | Target website URL |
+| `--task` | Plain English task description |
+| `--email` | Login email |
+| `--password` | Login password |
+| `--headless` | Run browser invisibly (default: visible) |
+| `--user-data-dir` | Browser profile path (default: `./agent_profile`) |
+| `--restore-session` | Restore a saved session by ID (e.g., `examly_io`) |
+| `--no-stealth` | Disable anti-bot stealth mode |
+
+### Launcher Flags (run.py only)
+| Flag | Description |
+|------|-------------|
+| `--no-dashboard` | Skip launching the Streamlit dashboard |
+| `--no-pocketbase` | Skip launching PocketBase |
 
 ---
 
 ## 📁 Repository Structure
 
-- [main.py](file:///d:/Projects/Web%20Dev/Current/Browser%20agent/main.py): Core entrypoint containing the guided wizard, model setups, and custom agent actions.
-- [pyproject.toml](file:///d:/Projects/Web%20Dev/Current/Browser%20agent/pyproject.toml) & [uv.lock](file:///d:/Projects/Web%20Dev/Current/Browser%20agent/uv.lock): Python dependencies and build parameters.
-- [agent_memory.json](file:///d:/Projects/Web%20Dev/Current/Browser%20agent/agent_memory.json) *(Git ignored)*: Local knowledge store containing self-healed site selectors.
-- [agent_profile/](file:///d:/Projects/Web%20Dev/Current/Browser%20agent/agent_profile/) *(Git ignored)*: Persistent Chrome user profile data containing login cookies.
+```
+Browser_Automation/
+├── main.py                    # Core agent: wizard, LLM setup, all controller actions
+├── run.py                     # All-in-one launcher (PocketBase + Streamlit + Agent)
+├── stealth.py                 # Anti-bot: playwright-stealth, curl_cffi, browser args
+├── visual_grounding.py        # Gemini vision: find/click elements by screenshot
+├── session_store.py           # Redis/JSON session backup and restore
+├── hitl/                      # Human-in-the-Loop system
+│   ├── pocketbase_client.py   # Bot ↔ PocketBase state management
+│   ├── dashboard.py           # Streamlit monitoring dashboard
+│   └── setup_pocketbase.py    # One-time PocketBase download & setup
+├── proxy/                     # Proxy management
+│   └── rotator.py             # Round-robin proxy pool with dead tracking
+├── agent_profile/             # Persistent Chromium profile (git-ignored)
+├── sessions/                  # Local JSON session backups (git-ignored)
+├── pyproject.toml             # Python dependencies (managed by uv)
+└── .env                       # Environment config (git-ignored)
+```
+
+---
+
+## 📄 License
+
+[Apache 2.0](LICENSE)

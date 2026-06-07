@@ -15,3 +15,10 @@ agent_profile/
 agent_memory.json
 todo.md
 hackathons.md
+
+# PocketBase
+pocketbase/
+pb_data/
+
+# Session storage
+sessions/
