@@ -18,7 +18,7 @@ from python_ghost_cursor.playwright_async import create_cursor
 # New architecture modules
 from stealth import apply_stealth, get_stealth_browser_args
 from visual_grounding import click_element_visually, find_element_coordinates, visual_scroll_to, describe_page_visually
-from session_store import SessionStore
+
 from proxy import ProxyRotator
 from hitl import HITLClient
 from memory_manager import memory_manager
@@ -534,11 +534,6 @@ async def main():
     browser_profile = BrowserProfile(**browser_profile_kwargs)
     browser = BrowserSession(browser_profile=browser_profile)
 
-    # ── Initialize Session Store ─────────────────────────────────────────────
-    redis_host = os.getenv("REDIS_HOST", "localhost")
-    redis_port = int(os.getenv("REDIS_PORT", "6379"))
-    session_store = SessionStore(redis_host=redis_host, redis_port=redis_port)
-
     # ── Initialize HITL Client ───────────────────────────────────────────────
     global _hitl_client
     _hitl_client = HITLClient()
@@ -573,18 +568,7 @@ async def main():
     else:
         result = await agent.run()
     
-    # ── Post-Run: Backup Session ─────────────────────────────────────────────
-    try:
-        # Generate a session ID from the domain
-        session_id = domain.replace(".", "_")
-        browser_context = browser.browser_context
-        if browser_context:
-            await session_store.backup_session(browser_context, session_id)
-            print(f"[SESSION] Session backed up as '{session_id}'")
-        else:
-            logger.warning("Could not backup session: browser context not available")
-    except Exception as e:
-        logger.warning(f"Could not backup session: {e}")
+
     
     # ── Update HITL State ────────────────────────────────────────────────────
     print("\n--- Agent Execution Finished ---")

@@ -2,7 +2,7 @@
 
 A general-purpose, self-healing browser automation agent powered by [browser-use](https://github.com/browser-use/browser-use) and Google Gemini. Give it a website and a task in plain English — it opens a real browser, navigates pages, fills forms, solves CAPTCHAs, and completes the job autonomously.
 
-Built with a layered defense system: **stealth anti-bot evasion**, **AI-powered visual grounding**, **human-in-the-loop fallback**, **proxy rotation**, and **persistent session storage** — making it resilient against modern bot detection, layout changes, and IP blocks.
+Built with a layered defense system: **stealth anti-bot evasion**, **AI-powered visual grounding**, **human-in-the-loop fallback**, and **proxy rotation** — making it resilient against modern bot detection, layout changes, and IP blocks.
 
 ---
 
@@ -13,7 +13,6 @@ Built with a layered defense system: **stealth anti-bot evasion**, **AI-powered 
 3. **It navigates, clicks, types, and reads pages** using an AI brain (Gemini) that decides what to do next at every step.
 4. **When selectors break**, it falls back to **visual grounding** — takes a screenshot, asks Gemini *"where is the Login button?"*, and clicks the coordinates.
 5. **When it gets completely stuck** (3D CAPTCHA, complex verification), it **pauses and alerts you** via a live dashboard so you can help.
-6. **Sessions persist across runs** — cookies are saved so you don't re-login every time.
 
 ---
 
@@ -45,11 +44,6 @@ A local **Streamlit** web dashboard connected to **PocketBase** for real-time mo
 - Dead proxy tracking: failed proxies are automatically skipped.
 - Uses Playwright's native proxy support (no mitmproxy dependency).
 - Gracefully falls back to direct connection when no proxies are configured.
-
-### 💾 Persistent Session Storage
-- **Browser Profile Persistence**: Chromium profile saved to `./agent_profile` — cookies, localStorage, and session data survive restarts.
-- **Redis + JSON Backup**: After each run, cookies are backed up to Redis (if available) or local JSON files. Restore with `--restore-session`.
-- Sessions are shareable across machines via Redis.
 
 ### 🧩 AI CAPTCHA Solver
 - Screenshots the CAPTCHA element directly inside Playwright.
@@ -108,10 +102,6 @@ TARGET_DATE="Day 5"
 # Optional: Proxy rotation (comma-separated)
 PROXY_LIST=http://user:pass@proxy1.com:8000,http://user:pass@proxy2.com:8000
 
-# Optional: Redis for session sync
-REDIS_HOST=localhost
-REDIS_PORT=6379
-
 # Optional: PocketBase for HITL dashboard
 POCKETBASE_URL=http://127.0.0.1:8090
 ```
@@ -144,8 +134,7 @@ $env:PYTHONIOENCODING="utf-8"; uv run python main.py
 uv run python main.py \
   --url "https://example.com" \
   --task "Find and list active hackathons" \
-  --headless \
-  --restore-session example_com
+  --headless
 ```
 
 | Flag | Description |
@@ -156,7 +145,6 @@ uv run python main.py \
 | `--password` | Login password |
 | `--headless` | Run browser invisibly (default: visible) |
 | `--user-data-dir` | Browser profile path (default: `./agent_profile`) |
-| `--restore-session` | Restore a saved session by ID (e.g., `examly_io`) |
 | `--no-stealth` | Disable anti-bot stealth mode |
 | `--queue` | Dispatch task to Taskiq Redis worker queue instead of running locally |
 
@@ -176,7 +164,6 @@ Browser_Automation/
 ├── run.py                     # All-in-one launcher (PocketBase + Streamlit + Agent)
 ├── stealth.py                 # Anti-bot: playwright-stealth, curl_cffi, browser args
 ├── visual_grounding.py        # Gemini vision: find/click elements by screenshot
-├── session_store.py           # Redis/JSON session backup and restore
 ├── memory_manager.py          # Mem0 long-term graph/vector memory integration
 ├── tasks.py                   # Taskiq asynchronous Redis worker queue definitions
 ├── hitl/                      # Human-in-the-Loop system
@@ -189,7 +176,6 @@ Browser_Automation/
 ├── parsers/                   # Alternate data parsing engines
 │   └── crawlee_parser.py      # Token-efficient DOM extraction using crawlee
 ├── agent_profile/             # Persistent Chromium profile (git-ignored)
-├── sessions/                  # Local JSON session backups (git-ignored)
 ├── agent_mem0_db/             # Local ChromaDB vector database for Mem0 (git-ignored)
 ├── pyproject.toml             # Python dependencies (managed by uv)
 └── .env                       # Environment config (git-ignored)
