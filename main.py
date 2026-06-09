@@ -386,10 +386,10 @@ async def main():
     10. Once the test starts, check the available sections. Notice the 'Section' dropdown at the top (e.g., 'Section: 1/2'). For each question:
         - If it is a Multiple Choice Question (MCQ): Read the question, evaluate the options, select the correct answer, and move to the next question.
         - If it is a Coding (DSA) question: Read the entire problem statement, including expected inputs/outputs. Try to get the OPTIMIZED code solution, type/inject your code carefully into the code editor area, and run/verify it.
-        - CRITICAL SECTION NAVIGATION: Once you complete a section, or if you are completely stuck and cannot solve the current question, you MUST click the 'Section' dropdown at the top of the page and select the next section.
-    11. Proceed through all questions in all sections until the end.
+        - CRITICAL SECTION NAVIGATION: Before considering a test complete, you MUST look at the top of the page for a 'Section' dropdown. If you are in section 1 of 2, you MUST click that dropdown and navigate to section 2. DO NOT submit the test until you have explicitly verified there are no other sections to complete.
+    11. Proceed through all questions in the current section. When you reach the last question of a section, you MUST check the section dropdown and switch to the next section if one exists.
     12. CRITICAL DATA SAVING REQUIREMENT: For EVERY question you solve, immediately append the question text and your answer (or injected code) into a local file named 'answers_{task_goal.replace(' ', '_')}.txt' using the 'write_file' or 'append_to_file' tool. Number them clearly.
-    13. Once completed, click 'Submit Test', type the exact text 'END' into the confirmation box, and submit.
+    13. FINAL SUBMISSION GATE: You are FORBIDDEN from clicking 'Submit Test' until you have explicitly interacted with the section dropdown and verified that you have visited and completed EVERY section available. Once absolutely certain, click 'Submit Test', type the exact text 'END' into the confirmation box, and submit.
     """
     else:
         task_instructions += f"""
