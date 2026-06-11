@@ -385,7 +385,15 @@ async def main():
     9. WAIT for the test to fully load.
     10. Once the test starts, check the available sections. Notice the 'Section' dropdown at the top (e.g., 'Section: 1/2'). For each question:
         - If it is a Multiple Choice Question (MCQ): Read the question, evaluate the options, select the correct answer, and move to the next question.
-        - If it is a Coding (DSA) question: Read the entire problem statement, including expected inputs/outputs. Try to get the OPTIMIZED code solution, type/inject your code carefully into the code editor area, and run/verify it.
+        - If it is a Coding (DSA) question, follow this MANDATORY workflow:
+          a) Read the ENTIRE problem statement carefully, including ALL sample inputs/outputs and constraints.
+          b) THINK about the optimal algorithm BEFORE writing any code. Identify the problem pattern (see DSA ALGORITHM STRATEGY below).
+          c) Write the optimal solution using the correct data structure/algorithm — NEVER use brute-force if an efficient approach exists.
+          d) Inject the code into the Monaco editor.
+          e) Click 'Compile & Run' and check the output against ALL visible test cases.
+          f) CRITICAL VERIFICATION: If ANY test case fails, DO NOT submit the code. Instead, analyze the failure, fix the logic, re-inject, and compile again. Repeat up to 3 times.
+          g) Only click 'Submit Code' when ALL visible test cases pass.
+          h) If after 3 attempts the code still fails some test cases, submit your best attempt and move on — do not get stuck in an infinite loop.
         - CRITICAL SECTION NAVIGATION: Before considering a test complete, you MUST look at the top of the page for a 'Section' dropdown. If you are in section 1 of 2, you MUST click that dropdown and navigate to section 2. DO NOT submit the test until you have explicitly verified there are no other sections to complete.
     11. Proceed through all questions in the current section. When you reach the last question of a section, you MUST check the section dropdown and switch to the next section if one exists.
     12. CRITICAL DATA SAVING REQUIREMENT: For EVERY question you solve, immediately append the question text and your answer (or injected code) into a local file named 'answers_{task_goal.replace(' ', '_')}.txt' using the 'write_file' or 'append_to_file' tool. Number them clearly.
@@ -412,9 +420,40 @@ async def main():
     === CRITICAL TROUBLESHOOTING & SELF-HEALING PROTOCOLS ===
     If you get stuck, run into errors, or find things not working, use the following self-healing instructions:
 
-    1. OPTIMIZED DSA CODE GENERATION:
-       Before injecting any code into the editor for a coding/DSA question, you MUST ensure your solution is highly optimized for time and space complexity (e.g., O(N) or O(N log N) instead of O(N^2) where applicable).
-       The code MUST be flawless, handle edge cases, and compile without errors. Double-check your logic before generating the final string.
+    1. DSA ALGORITHM STRATEGY (MANDATORY — READ BEFORE EVERY CODING QUESTION):
+       You MUST identify the correct algorithm pattern BEFORE writing code. NEVER default to brute-force.
+       
+       PATTERN RECOGNITION CHECKLIST:
+       - "Count subsequences / common subsequences" → Dynamic Programming (2D DP table, NOT brute-force enumeration)
+       - "Shortest path / minimum cost" → BFS, Dijkstra, or DP
+       - "Subarray sum / sliding window" → Two pointers or prefix sums
+       - "String matching / palindrome" → DP or KMP, NOT nested loops
+       - "Generate permutations/combinations" → Backtracking with pruning
+       - "Binary search on answer" → Monotonic check function + binary search
+       - "Graph traversal" → BFS/DFS with visited set
+       - "Interval scheduling" → Greedy with sorting
+       - "Stack-based" (next greater, valid parentheses) → Monotonic stack
+       - "Tree problems" → DFS/BFS recursion
+       - "Top K / heap" → Priority queue (min/max heap)
+       
+       COMPLEXITY REQUIREMENTS:
+       - Target O(N), O(N log N), or O(N*M) where N,M are input sizes
+       - REJECT any O(2^N) or O(N!) approach unless N ≤ 15 AND no DP alternative exists
+       - For string problems with constraints N ≤ 1000: O(N^2) DP is acceptable
+       - For N ≤ 10^5: must be O(N log N) or better
+       
+       CODE QUALITY CHECKLIST (verify BEFORE injecting):
+       - [ ] Handles edge cases: empty input, single element, maximum constraints
+       - [ ] Correct I/O format: matches the expected output format EXACTLY (spaces, newlines)
+       - [ ] No buffer overflows: arrays sized appropriately for constraints
+       - [ ] No integer overflow: use long/long long for large multiplications
+       - [ ] Compiles cleanly: no missing includes, no syntax errors
+       
+       VERIFICATION LOOP (MANDATORY):
+       After injecting code, you MUST click 'Compile & Run' and read the output.
+       - If ALL test cases show 'Passed' or correct output → Submit the code
+       - If ANY test case fails → Read the failing input/output, identify the bug, fix the algorithm, re-inject, and compile again
+       - Maximum 3 fix attempts per question. After 3 failures, submit best attempt and move on.
 
     2. MONACO CODE EDITOR INJECTION:
        Do NOT try to type code line-by-line using basic keyboard inputs or by modifying standard input text fields. The Monaco Editor requires setting values directly on its internal model.
