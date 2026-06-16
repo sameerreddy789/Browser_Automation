@@ -278,7 +278,7 @@ async def pause_for_human_help(reason: str, browser_session: BrowserSession) -> 
                 "Returns clean C++ code ready to inject into the Monaco editor. "
                 "ALWAYS use this action for coding questions instead of trying to write code yourself — this solver is far more capable."
 )
-async def solve_coding_question(problem_statement: str, language: str = "cpp") -> str:
+async def solve_coding_question(problem_statement: str, language: str = "python") -> str:
     from code_solver import solve_problem
     code = await solve_problem(problem_statement, language)
     return f"INJECT THIS CODE INTO MONACO EDITOR:\n{code}"
@@ -290,7 +290,7 @@ async def solve_coding_question(problem_statement: str, language: str = "cpp") -
                 "Returns a fixed version of the code. Use this when 'Compile & Run' shows test case failures."
 )
 async def fix_coding_solution(problem_statement: str, current_code: str, 
-                               failure_details: str, language: str = "cpp") -> str:
+                               failure_details: str, language: str = "python") -> str:
     from code_solver import fix_solution
     fixed_code = await fix_solution(problem_statement, current_code, failure_details, language)
     return f"INJECT THIS FIXED CODE INTO MONACO EDITOR:\n{fixed_code}"
@@ -301,7 +301,7 @@ async def fix_coding_solution(problem_statement: str, current_code: str,
                 "Pass the problem, the previous failing code, and ALL failure details accumulated so far."
 )
 async def retry_coding_solution(problem_statement: str, previous_code: str,
-                                 all_failure_details: str, language: str = "cpp") -> str:
+                                 all_failure_details: str, language: str = "python") -> str:
     from code_solver import solve_problem_retry
     code = await solve_problem_retry(problem_statement, previous_code, all_failure_details, language)
     return f"INJECT THIS NEW CODE INTO MONACO EDITOR:\n{code}"
@@ -497,7 +497,7 @@ async def main():
         - If it is a Coding (DSA) question, follow this MANDATORY workflow:
           a) Read the ENTIRE problem statement carefully, including ALL sample inputs/outputs, constraints, input format, and output format.
           b) Copy the COMPLETE problem text — every detail matters. Include question title, description, examples, constraints, and I/O format.
-          c) IMPORTANT: Check the language dropdown in the editor and make sure 'C++' (or 'C++ 14' / 'C++ 17') is selected.
+          c) IMPORTANT: Check the language dropdown in the editor and make sure 'Python 3' is selected.
           d) Call the 'solve_coding_question' action with the full problem text. Do NOT try to write code yourself — the dedicated solver uses a much more powerful AI model (gemini-2.5-flash).
           e) Take the returned code and inject it into the Monaco editor using the Monaco injection JavaScript.
           f) Click 'Compile & Run' and carefully read the output panel for ALL visible test cases.
@@ -524,11 +524,10 @@ async def main():
         task_instructions += f"""
     === GENERAL PLATFORM RULES ===
     1. Navigate to {target_url}
-    2. If the page is public and does not require signing in to complete the goal, skip steps 3 and 4 and proceed directly to step 5.
-    3. Look for any 'Sign In', 'Log In', or user icon buttons. Click them.
-    4. Enter the email '{email}' and password '{password}' in the corresponding login form inputs, then click 'Submit' or 'Login'.
-    5. Search the page dynamically to locate the target elements required to complete: '{task_goal}'.
-    6. Dynamically decide which elements to click, scroll, or input text into to progress towards the goal.
+    2. Look for any 'Sign In', 'Log In', or user icon buttons. Click them.
+    3. Enter the email '{email}' and password '{password}', then click Login.
+    4. CRITICAL: Once logged in, DO NOT look at the profile name (e.g., 'Sameer' or anything else) to verify the account. The profile name IS correct. DO NOT click Logout. Immediately proceed to find the '{task_goal}'.
+    5. Dynamically decide which elements to click, scroll, or input text into to progress towards the goal.
     """
 
     # Add replay mode emphasis if in replay mode
@@ -554,8 +553,8 @@ async def main():
 
     1. DSA CODE SOLVING (MANDATORY — USE THE DEDICATED SOLVER FOR ALL CODING QUESTIONS):
        You MUST use 'solve_coding_question' for ALL coding questions. Do NOT write code yourself.
-       The dedicated solver uses gemini-2.5-flash (a much more powerful model) and produces optimal C++ solutions.
-       Default language is C++. Always include the FULL problem statement when calling the solver.
+       The dedicated solver uses gemini-2.5-flash (a much more powerful model) and produces optimal Python 3 solutions.
+       Default language is Python. Always include the FULL problem statement when calling the solver.
        
        3-TIER SOLVING WORKFLOW:
        TIER 1 — Initial solve: Call 'solve_coding_question' → inject code → Compile & Run
@@ -573,9 +572,9 @@ async def main():
        When calling fix or retry, include ALL this failure information — the more detail, the better the fix.
        
        LANGUAGE SELECTION:
-       - Default: C++ (C++14 or C++17)
-       - Before injecting code, ensure the language dropdown in the editor is set to C++
-       - If C++ is not available, use 'language="python"' parameter when calling the solver
+       - Default: Python (Python 3)
+       - Before injecting code, ensure the language dropdown in the editor is set to Python 3
+       - If Python is not available, use 'language="cpp"' parameter when calling the solver
        
        VERIFICATION LOOP:
        After injecting code, you MUST click 'Compile & Run' and read the output.
@@ -652,7 +651,7 @@ async def main():
        If you encounter a problem you absolutely cannot solve on your own (e.g., complex 3D CAPTCHA, multi-step verification, or any blocker where even visual grounding fails), call 'pause_for_human_help' with a clear description of why you're stuck. The bot will pause and show a screenshot on the dashboard so the human can help. Only use this as a last resort after trying other approaches.
     """
 
-    # Set up models: gemini-3.1-flash-lite as main, and gemini-1.5-flash as fallback for rate limits / 503s
+    # Set up models
     main_llm = ChatGoogle(
         model="gemini-3.1-flash-lite", 
         max_retries=5, 
@@ -660,7 +659,7 @@ async def main():
         retry_max_delay=30.0
     )
     fallback_llm = ChatGoogle(
-        model="gemma-4-31b", 
+        model="gemini-3.1-flash-lite", 
         max_retries=5, 
         retry_base_delay=3.0, 
         retry_max_delay=30.0

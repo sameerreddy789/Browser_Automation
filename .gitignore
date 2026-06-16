@@ -26,3 +26,6 @@ sessions/
 # Answer Bank Data
 answer_bank*.json
 answers_*.txt
+
+# Excluded course content
+nursing_computer_basics_course.md

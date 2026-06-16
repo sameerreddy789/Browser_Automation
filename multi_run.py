@@ -149,7 +149,7 @@ async def _reevaluate_mcq(question_text: str) -> str:
         client = genai.Client()
         
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
             contents=f"""You are taking a multiple-choice exam. Read the question carefully and choose the CORRECT answer.
 
 {question_text}

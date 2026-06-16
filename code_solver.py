@@ -42,7 +42,7 @@ def _get_client():
     return _client
 
 
-def _extract_code(response_text: str, language: str = "cpp") -> str:
+def _extract_code(response_text: str, language: str = "python") -> str:
     """
     Extract clean, ready-to-paste code from the AI response.
     
@@ -136,7 +136,7 @@ def _get_response_text(response) -> str:
     return ""
 
 
-async def solve_problem(problem_statement: str, language: str = "cpp") -> str:
+async def solve_problem(problem_statement: str, language: str = "python") -> str:
     """
     Solve a coding problem using gemini-2.5-flash with deep algorithmic reasoning.
     
@@ -164,25 +164,14 @@ Solve this coding problem in {lang_name}. Your solution MUST pass ALL test cases
 === END PROBLEM ===
 
 MANDATORY REQUIREMENTS FOR {lang_name.upper()} CODE:
-1. Use the MOST EFFICIENT algorithm possible. Analyze constraints to determine required complexity.
-2. For C++:
-   - Start with: #include <bits/stdc++.h> and using namespace std;
-   - Add fast I/O: ios_base::sync_with_stdio(false); cin.tie(NULL);
-   - Use 'long long' for ANY value that could exceed 2^31 (sums, products, large counts)
-   - Use '\\n' instead of endl (faster output flushing)
-3. Read input from stdin (cin), write output to stdout (cout).
-4. Output EXACTLY what the problem asks — no extra text like "Enter:", "Result:", "Answer:" etc.
-5. Match the output format PRECISELY:
-   - Check if outputs should be space-separated or newline-separated
-   - Check for trailing spaces or newlines
-   - Check if there should be a newline at the very end
-6. Handle ALL edge cases:
-   - Empty input / zero-length arrays
-   - Single element
-   - Maximum constraint values (watch for overflow!)
-   - Negative numbers if applicable
-   - Duplicate values
-7. The code must compile with C++14 or C++17 standard without warnings.
+1. Keep the code concise (under 50 lines). Do NOT write massive solutions.
+2. If the problem explicitly asks for a class, use one. Otherwise, keep it simple.
+3. DO NOT use Python f-strings (e.g. f"value"). Use basic string concatenation ("str" + str(val)). This is CRITICAL to avoid JavaScript injection errors.
+4. DO NOT use triple quotes or backticks inside the code.
+5. Read input from sys.stdin and write output to standard print statements.
+6. Output EXACTLY what the problem asks — no extra text like "Enter:", "Result:", "Answer:" etc.
+7. Match the output format PRECISELY. Check for trailing spaces or newlines.
+8. Handle ALL edge cases (empty input, negative numbers, maximum constraints).
 
 ALGORITHM SELECTION (match the problem pattern):
 - Counting subsequences/subsets → DP (NOT brute force enumeration)
@@ -210,7 +199,7 @@ OUTPUT: Return ONLY the complete {lang_name} code. No explanations, no markdown 
         logger.info("🧠 [CODE SOLVER]: Generating initial solution with gemini-2.5-flash...")
         
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
             contents=prompt,
         )
         
@@ -231,7 +220,7 @@ OUTPUT: Return ONLY the complete {lang_name} code. No explanations, no markdown 
 
 
 async def fix_solution(problem_statement: str, current_code: str, 
-                        failure_details: str, language: str = "cpp") -> str:
+                        failure_details: str, language: str = "python") -> str:
     """
     Fix a failing solution by analyzing the test case failure.
     
@@ -281,18 +270,20 @@ DEBUG CHECKLIST — Check each one systematically:
 10. MODULAR ARITHMETIC: If the answer should be modulo 10^9+7, is it applied correctly everywhere?
 
 INSTRUCTIONS:
+- Keep the code simple (under 50 lines).
+- DO NOT use Python f-strings, triple quotes, or complex formatting. Use basic string concatenation.
 - If the bug is a small fix (overflow, off-by-one, format): Make the targeted fix.
-- If the algorithm is FUNDAMENTALLY WRONG: Rewrite with the correct approach.
+- If the algorithm is FUNDAMENTALLY WRONG: Rewrite with the correct approach using short code.
 - Mentally trace your fixed code through the failing test case to verify it produces the correct output.
 - The fixed code must still handle ALL other test cases correctly.
 
 OUTPUT: Return ONLY the fixed {lang_name} code. No explanations — just the corrected code ready to compile."""
 
     try:
-        logger.info("🔧 [CODE SOLVER]: Analyzing failure and generating fix with gemini-2.5-flash...")
+        logger.info("🔧 [CODE SOLVER]: Analyzing failure and generating fix with gemini-3.5-flash...")
         
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
             contents=prompt,
         )
         
@@ -313,7 +304,7 @@ OUTPUT: Return ONLY the fixed {lang_name} code. No explanations — just the cor
 
 
 async def solve_problem_retry(problem_statement: str, previous_code: str,
-                               all_failure_details: str, language: str = "cpp") -> str:
+                               all_failure_details: str, language: str = "python") -> str:
     """
     Last-resort retry: solve the problem from scratch using a completely different approach.
     
@@ -361,11 +352,10 @@ CRITICAL: The previous approach is WRONG. You must:
 4. Pay EXTREME attention to I/O format — match it EXACTLY
 5. Handle ALL edge cases including the ones that caused the failure
 
-For C++:
-- #include <bits/stdc++.h> and using namespace std;
-- Fast I/O: ios_base::sync_with_stdio(false); cin.tie(NULL);
-- Use long long where needed
-- Use '\\n' not endl
+For Python:
+- Keep the code simple (under 50 lines).
+- DO NOT use Python f-strings, triple quotes, or complex string formatting. Use basic concatenation.
+- Read from sys.stdin.
 
 OUTPUT: Return ONLY the complete {lang_name} code. No explanations — just raw code."""
 
@@ -373,7 +363,7 @@ OUTPUT: Return ONLY the complete {lang_name} code. No explanations — just raw 
         logger.info("🔄 [CODE SOLVER]: Last resort — regenerating solution with different approach...")
         
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
             contents=prompt,
         )
         
