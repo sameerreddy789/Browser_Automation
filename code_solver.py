@@ -207,7 +207,7 @@ OUTPUT: Return ONLY the complete {lang_name} code. No explanations, no markdown 
         
         if not raw_response:
             logger.error("❌ [CODE SOLVER]: Empty response from gemini-2.5-flash")
-            return f"// Error: Empty response from code solver"
+            return "// Error: Empty response from code solver"
         
         code = _extract_code(raw_response, language)
         

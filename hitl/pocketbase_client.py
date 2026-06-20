@@ -200,7 +200,7 @@ class HITLClient:
         self.update_state("PAUSED_FOR_USER", reason, screenshot_b64)
         
         print(f"\n\033[93m🤖 [HITL]: Bot paused — {reason}\033[0m")
-        print(f"\033[93m   Open the Streamlit dashboard to respond, or type here:\033[0m")
+        print("\033[93m   Open the Streamlit dashboard to respond, or type here:\033[0m")
         
         # Poll for user response (check both PocketBase and terminal)
         start_time = time.time()

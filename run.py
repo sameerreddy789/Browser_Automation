@@ -21,7 +21,6 @@ import platform
 import subprocess
 import sys
 import time
-import signal
 
 
 # Track background processes for cleanup

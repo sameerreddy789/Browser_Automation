@@ -90,7 +90,7 @@ def get_pocketbase_client():
             return pb, records.items[0]
         else:
             return pb, None
-    except Exception as e:
+    except Exception:
         return None, None
 
 

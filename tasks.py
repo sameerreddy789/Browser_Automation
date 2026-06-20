@@ -1,4 +1,3 @@
-import asyncio
 import os
 from loguru import logger
 from taskiq_redis import RedisAsyncResultBackend, ListQueueBroker

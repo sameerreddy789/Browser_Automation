@@ -101,7 +101,7 @@ async def review_and_fix_answers(bank_file: str):
             
             if current_code:
                 # Tier 1: Try to fix the existing code
-                print(f"    🔧 Tier 1: Fixing existing code...")
+                print("    🔧 Tier 1: Fixing existing code...")
                 fixed_code = await fix_solution(q_text, current_code, failure_details)
                 
                 # If the fix looks substantially different, use it
@@ -111,7 +111,7 @@ async def review_and_fix_answers(bank_file: str):
                     continue
             
             # Tier 2: Solve from scratch
-            print(f"    🧠 Tier 2: Solving from scratch...")
+            print("    🧠 Tier 2: Solving from scratch...")
             new_code = await solve_problem(q_text)
             
             if new_code and "Error:" not in new_code:
@@ -120,7 +120,7 @@ async def review_and_fix_answers(bank_file: str):
                 continue
             
             # Tier 3: Try completely different approach
-            print(f"    🔄 Tier 3: Trying alternative approach...")
+            print("    🔄 Tier 3: Trying alternative approach...")
             alt_code = await solve_problem_retry(q_text, current_code or new_code, failure_details)
             
             if alt_code and "Error:" not in alt_code:
@@ -131,7 +131,7 @@ async def review_and_fix_answers(bank_file: str):
         
         elif q_type == "mcq":
             # Re-evaluate MCQ with Gemini
-            print(f"    🧠 Re-evaluating MCQ with AI...")
+            print("    🧠 Re-evaluating MCQ with AI...")
             corrected = await _reevaluate_mcq(q_text)
             if corrected:
                 bank.update_corrected_answer(q_num, section, new_answer=corrected)
@@ -234,12 +234,12 @@ def main():
     
     # Header
     print(f"\n{'='*60}")
-    print(f"  🤖 Multi-Account Examly Test Runner")
+    print("  🤖 Multi-Account Examly Test Runner")
     print(f"{'='*60}")
     print(f"  Test: {target_date} Assessment")
     print(f"  Accounts: {len(accounts)}")
     print(f"  Order: {' → '.join(a['email'].split('@')[0] for a in accounts)}")
-    print(f"  Strategy: Account 1 = sacrifice, rest = 100% target")
+    print("  Strategy: Account 1 = sacrifice, rest = 100% target")
     print(f"  Answer Bank: {bank_file}")
     print(f"{'='*60}\n")
     
@@ -247,7 +247,7 @@ def main():
     if not args.skip_sacrifice and not args.review_only:
         print(f"{'─'*60}")
         print(f"  📋 PHASE 1: SACRIFICE RUN — {accounts[0]['email']}")
-        print(f"  This run saves all questions & answers. Mistakes are OK.")
+        print("  This run saves all questions & answers. Mistakes are OK.")
         print(f"{'─'*60}\n")
         
         returncode = run_agent_for_account(
@@ -257,7 +257,7 @@ def main():
         if returncode != 0:
             print(f"  ⚠️  Agent exited with code {returncode}")
         
-        print(f"\n  ✅ Sacrifice run complete.")
+        print("\n  ✅ Sacrifice run complete.")
     else:
         if args.review_only:
             print("  ⏭️  Skipping sacrifice run (--review-only)")
@@ -267,7 +267,7 @@ def main():
     
     # ── Phase 2: Review & Fix ─────────────────────────────────────────────
     print(f"\n{'─'*60}")
-    print(f"  🔍 PHASE 2: AI REVIEW — Fixing Wrong Answers")
+    print("  🔍 PHASE 2: AI REVIEW — Fixing Wrong Answers")
     print(f"{'─'*60}\n")
     
     project_root = os.path.dirname(os.path.abspath(__file__))
@@ -281,7 +281,7 @@ def main():
     
     if args.review_only:
         print(f"\n{'='*60}")
-        print(f"  ✅ Review complete. Exiting (--review-only).")
+        print("  ✅ Review complete. Exiting (--review-only).")
         print(f"{'='*60}\n")
         return
     
@@ -289,7 +289,7 @@ def main():
     for i, account in enumerate(accounts[1:], 2):
         print(f"\n{'─'*60}")
         print(f"  🎯 PHASE {i}: PERFECT RUN — {account['email']}")
-        print(f"  Using corrected answers. Target: 100%")
+        print("  Using corrected answers. Target: 100%")
         print(f"{'─'*60}\n")
         
         returncode = run_agent_for_account(

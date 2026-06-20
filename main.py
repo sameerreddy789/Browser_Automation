@@ -1,14 +1,11 @@
 import os
-import sys
 import asyncio
 import argparse
-import json
 import re
 import io
 
 from dotenv import load_dotenv
 from browser_use import Agent, ChatGoogle, Controller
-from browser_use.agent.views import ActionResult
 from browser_use.browser.session import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from google import genai
@@ -16,7 +13,7 @@ from PIL import Image
 from python_ghost_cursor.playwright_async import create_cursor
 
 # New architecture modules
-from stealth import apply_stealth, get_stealth_browser_args
+from stealth import get_stealth_browser_args
 from visual_grounding import click_element_visually, find_element_coordinates, visual_scroll_to, describe_page_visually
 
 from proxy import ProxyRotator
@@ -659,7 +656,7 @@ async def main():
         retry_max_delay=30.0
     )
     fallback_llm = ChatGoogle(
-        model="gemini-3.1-flash-lite", 
+        model="gemini-2.5-flash", 
         max_retries=5, 
         retry_base_delay=3.0, 
         retry_max_delay=30.0

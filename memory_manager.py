@@ -1,4 +1,3 @@
-import os
 from loguru import logger
 from mem0 import Memory
 
