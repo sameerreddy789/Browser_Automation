@@ -24,41 +24,6 @@ from parsers.crawlee_parser import extract_page_data_crawlee
 # Set up logging configuration
 from loguru import logger
 
-class FallbackChatGoogle:
-    """
-    A custom wrapper class that satisfies the browser_use BaseChatModel Protocol.
-    If the primary model fails, it seamlessly falls back to a secondary model.
-    """
-    _verified_api_keys = False
-
-    def __init__(self, main_llm: ChatGoogle, fallback_llm: ChatGoogle):
-        self.main_llm = main_llm
-        self.fallback_llm = fallback_llm
-        self.model = main_llm.model
-        self.logger = logger.bind(name="browser_use.fallback_chat_google")
-
-    @property
-    def provider(self) -> str:
-        return self.main_llm.provider
-
-    @property
-    def name(self) -> str:
-        return self.main_llm.name
-
-    @property
-    def model_name(self) -> str:
-        return self.main_llm.model_name
-
-    async def ainvoke(self, messages, output_format=None, **kwargs):
-        try:
-            self.logger.info(f"Attempting call using primary model: {self.main_llm.model}")
-            return await self.main_llm.ainvoke(messages, output_format=output_format, **kwargs)
-        except Exception as e:
-            self.logger.warning(
-                f"Primary model {self.main_llm.model} failed: {e}. "
-                f"Retrying and falling back to secondary model: {self.fallback_llm.model}"
-            )
-            return await self.fallback_llm.ainvoke(messages, output_format=output_format, **kwargs)
 
 # Initialize Controller for custom actions
 controller = Controller()
@@ -649,7 +614,7 @@ async def main():
     """
 
     # Set up models
-    main_llm = ChatGoogle(
+    llm = ChatGoogle(
         model="gemini-3.1-flash-lite", 
         max_retries=5, 
         retry_base_delay=3.0, 
@@ -661,7 +626,6 @@ async def main():
         retry_base_delay=3.0, 
         retry_max_delay=30.0
     )
-    llm = FallbackChatGoogle(main_llm, fallback_llm)
 
     # ── Initialize Proxy Rotation ─────────────────────────────────────────────
     proxy_rotator = ProxyRotator.from_env()
@@ -706,8 +670,9 @@ async def main():
     agent = Agent(
         task=task_instructions,
         llm=llm,
+        fallback_llm=fallback_llm,
         controller=controller,
-        browser=browser,
+        browser_session=browser,
         max_failures=10,
         max_actions_per_step=5,
     )
