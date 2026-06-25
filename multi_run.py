@@ -168,7 +168,7 @@ IMPORTANT:
 
 
 def run_agent_for_account(account: dict, mode: str, bank_file: str, 
-                           target_date: str, extra_args: list = None):
+                           target_date: str, extra_args: list = None, course_name: str = None):
     """
     Run the browser agent as a subprocess for a specific account.
     
@@ -198,6 +198,8 @@ def run_agent_for_account(account: dict, mode: str, bank_file: str,
     # Set encoding for Windows terminal emoji support
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
+    if course_name:
+        env["COURSE_NAME"] = course_name
     
     result = subprocess.run(cmd, cwd=project_root, env=env)
     return result.returncode
@@ -209,6 +211,8 @@ def main():
     parser = argparse.ArgumentParser(description="Multi-Account Examly Test Runner")
     parser.add_argument("--day", type=str, default=None,
                         help="Target date override (e.g., 'Day 18')")
+    parser.add_argument("--course", type=str, default=None,
+                        help="Course name override")
     parser.add_argument("--skip-sacrifice", action="store_true",
                         help="Skip the sacrifice run (use existing answer bank)")
     parser.add_argument("--review-only", action="store_true",
@@ -251,7 +255,7 @@ def main():
         print(f"{'─'*60}\n")
         
         returncode = run_agent_for_account(
-            accounts[0], "discovery", bank_file, target_date, extra_args
+            accounts[0], "discovery", bank_file, target_date, extra_args, args.course
         )
         
         if returncode != 0:
@@ -285,19 +289,37 @@ def main():
         print(f"{'='*60}\n")
         return
     
-    # ── Phase 3+: Perfect Runs ────────────────────────────────────────────
+    # ── Phase 3+: Perfect Runs (Zero-API Direct Replay) ─────────────────────
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    replay_script = os.path.join(project_root, "replay_direct.py")
+    
     for i, account in enumerate(accounts[1:], 2):
         print(f"\n{'─'*60}")
         print(f"  🎯 PHASE {i}: PERFECT RUN — {account['email']}")
-        print("  Using corrected answers. Target: 100%")
+        print("  Using DIRECT replay (zero API calls)")
         print(f"{'─'*60}\n")
         
-        returncode = run_agent_for_account(
-            account, "replay", bank_file, target_date, extra_args
-        )
+        cmd = [
+            sys.executable, replay_script,
+            "--email", account["email"],
+            "--password", account["password"],
+            "--day", target_date,
+            "--answer-bank", os.path.join(project_root, bank_file),
+        ]
+        
+        if args.course:
+            cmd.extend(["--course", args.course])
+        
+        if args.headless:
+            cmd.append("--headless")
+        
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        
+        returncode = subprocess.run(cmd, cwd=project_root, env=env).returncode
         
         if returncode != 0:
-            print(f"  ⚠️  Agent exited with code {returncode}")
+            print(f"  ⚠️  Replay exited with code {returncode}")
         
         print(f"\n  ✅ Run complete for {account['email']}")
     

@@ -9,6 +9,7 @@ wheels/
 # Virtual environments
 .venv
 .env
+uv.lock
 
 # Local agent run artifacts
 agent_profile/
@@ -16,16 +17,21 @@ agent_memory.json
 todo.md
 hackathons.md
 
-# PocketBase
-pocketbase/
-pb_data/
-
-# Session storage
+# Session storage (local JSON sessions)
 sessions/
 
-# Answer Bank Data
+# Answer Bank Data (per-test run data)
 answer_bank*.json
 answers_*.txt
 
+# Debug screenshots (generated during failed runs)
+debug_*.png
+
+# AI consultant logs
+consultant_*.log
+
 # Excluded course content
 nursing_computer_basics_course.md
+
+# Editor config
+.vscode/

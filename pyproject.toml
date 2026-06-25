@@ -1,29 +1,22 @@
 [project]
 name = "browser-agent"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "MBU Examly browser automation agent with dedicated DSA coding solver"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    # Core
+    # Core agent & browser automation
     "browser-use>=0.12.9",
     "langchain-google-genai>=4.2.4",
     "playwright>=1.60.0",
     "python-dotenv>=1.2.2",
     "python-ghost-cursor>=0.1.1",
-    # Anti-detection & Fingerprinting
+    # Anti-detection & fingerprinting
     "playwright-stealth>=1.0.6",
     "curl-cffi>=0.7.4",
-    # HITL & Dashboard
-    "pocketbase>=0.17.0",
-    "streamlit>=1.35.0",
-    # Session Storage
-    "redis>=5.0.4",
-    "mem0ai>=2.0.4",
-    "taskiq>=0.12.4",
-    "taskiq-redis>=1.2.2",
+    # Utilities
     "loguru>=0.7.3",
-    "mitmproxy>=12.2.3",
+    "pillow",
+    # Page data extraction (optional but used by scrape_text_data action)
     "crawlee[playwright]>=1.7.2",
-    "chromadb>=1.5.9",
 ]

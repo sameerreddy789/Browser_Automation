@@ -1,84 +1,68 @@
-# 🤖 Browser Automation Agent
+# 🤖 MBU Examly Browser Automation Agent
 
-A general-purpose, self-healing browser automation agent powered by [browser-use](https://github.com/browser-use/browser-use) and Google Gemini. Give it a website and a task in plain English — it opens a real browser, navigates pages, fills forms, solves CAPTCHAs, and completes the job autonomously.
-
-Built with a layered defense system: **stealth anti-bot evasion**, **AI-powered visual grounding**, **human-in-the-loop fallback**, and **proxy rotation** — making it resilient against modern bot detection, layout changes, and IP blocks.
+A general-purpose, self-healing browser automation agent built on top of [browser-use](https://github.com/browser-use/browser-use) and Google Gemini. The agent is specifically optimized to navigate the MBU Examly platform, answer MCQs from a curated answer bank, solve competitive coding/DSA questions using a high-fidelity coding brain, and bypass bot detection mechanisms.
 
 ---
 
-## ✨ What It Does
+## ✨ Key Capabilities
 
-1. **You describe a task** — *"Log into Examly, take the Day 13 Assessment, answer all questions, and submit."*
-2. **The agent opens a real Chromium browser** with stealth protections enabled (hidden automation flags, spoofed fingerprints).
-3. **It navigates, clicks, types, and reads pages** using an AI brain (Gemini) that decides what to do next at every step.
-4. **When selectors break**, it falls back to **visual grounding** — takes a screenshot, asks Gemini *"where is the Login button?"*, and clicks the coordinates.
-5. **When it gets completely stuck** (3D CAPTCHA, complex verification), it **pauses and alerts you** via a live dashboard so you can help.
-
----
-
-## 🚀 Key Features
-
-### 🛡️ Anti-Bot & Stealth Engine
-- **playwright-stealth v2**: Injects scripts to hide `navigator.webdriver`, patch plugins/languages, and pass bot-detection tests.
-- **TLS Fingerprint Impersonation**: Uses `curl_cffi` for HTTP requests that mimic Chrome's exact JA3/JA4 TLS handshake — Cloudflare/Akamai can't distinguish them from real browsers.
-- **Human Cursor Emulation**: `python-ghost-cursor` generates realistic Bezier-curve mouse paths for clicks and hovers.
-- **Stealth Browser Args**: Disables automation-revealing Chromium features (`AutomationControlled`, infobars, etc.).
-
-### 🎯 Visual Grounding (AI Vision)
-When CSS selectors fail (website redesigns, dynamic content), the agent "sees" the page:
-- **`visual_click`** — Describe the element in plain English (*"the blue Submit button"*), and the AI finds and clicks it by screenshot.
-- **`visual_find`** — Get pixel coordinates of any described element.
-- **`visual_scroll`** — Scroll until a described element appears.
-- **`visual_describe_page`** — Get a full AI description of what's on screen.
-
-### 🤝 Human-in-the-Loop (HITL) Dashboard
-A local **Streamlit** web dashboard connected to **PocketBase** for real-time monitoring and intervention:
-- Live screenshot stream of the bot's current view.
-- Bot pauses automatically when stuck (complex CAPTCHAs, verification).
-- Text input for you to type CAPTCHA solutions or instructions.
-- Emergency controls (force stop, reset state).
-- Falls back to terminal input if the dashboard isn't running.
-
-### 🔀 Proxy Rotation
-- Configure a pool of proxies in `.env` — the agent rotates through them per-session.
-- Dead proxy tracking: failed proxies are automatically skipped.
-- Uses Playwright's native proxy support (no mitmproxy dependency).
-- Gracefully falls back to direct connection when no proxies are configured.
-
-### 🧩 AI CAPTCHA Solver
-- Screenshots the CAPTCHA element directly inside Playwright.
-- Sends it to Gemini for OCR — no suspicious external API calls.
-- Supports alphanumeric and Persian/Farsi digit CAPTCHAs.
-
-### 🧠 Adaptive Memory (Mem0)
-- The agent utilizes `mem0ai` as a long-term vector database (ChromaDB) to map and track user preferences and successful DOM interactions.
-- Successfully learned site-specific logic and Javascript workarounds persist dynamically across tasks without bloated JSON states.
-
-### ⚡ Distributed Asynchronous Queue (Taskiq)
-- Optional Taskiq integration to isolate the Playwright browser context into an independent asynchronous Python worker task.
-- Enqueue jobs seamlessly backed by Redis.
-
-### 📝 Comprehensive Logging (Loguru)
-- Advanced JSON-based structured logging deployed across all automation workers via `loguru`.
-- Enables rapid granular diagnostics of LLM reasoning, proxy rotation, and network interception.
-
-### 🕸️ Token-Efficient Parsing (Crawlee)
-- Integrates `crawlee` when massive text data or lists need to be extracted efficiently.
-- Bypasses expensive screenshot ingestion and LLM coordinate hallucinations for purely structural data extraction.
-
-### 🔀 Dual LLM Fallback
-- Primary: `gemini-3.1-flash-lite` (fast, cheap).
-- Fallback: `gemini-1.5-flash` (if primary hits rate limits or 503s).
-- Seamless switching — no task interruption.
+1. **Intelligent Navigation & Answering**: Automatically log in, navigate to the target course, locate the assessment, and complete both MCQ and coding sections.
+2. **Two-Brain Architecture**:
+   - **Navigation Brain**: Powered by `gemini-3.1-flash-lite` for fast, lightweight page structure analysis, clicks, and scrolling.
+   - **Coding Brain**: Powered by `gemini-2.5-flash` (with thinking/reasoning enabled) to solve complex Data Structures & Algorithms (DSA) problems with optimal time/space complexity.
+3. **Simulated Human Typing (Anti-Bot Evasion)**: 
+   - Never uses instant text filling, value insertion, or clipboard pasting (`.fill()` or `.setValue()`).
+   - Simulates realistic human typing character-by-character with a delay of 100ms and random variation (80ms to 120ms) on all text inputs, textareas, and code editors.
+   - Programmatically disables Monaco editor auto-closing brackets/quotes before typing to prevent syntax corruption.
+4. **Terminal-Based AI Consultant**: Replaces heavy web dashboards with a lightweight console fallback. When the agent is stuck, it prompts the console; typing `ai` automatically consults an independent Gemini API assistant via `ai_consultant.py` to get an actionable solution.
+5. **Multi-Account Pipeline (`multi_run.py`)**:
+   - **Account 1 (Sacrifice/Discovery)**: Solves the test from scratch and saves all Q&A to the answer bank.
+   - **AI Review Phase**: Automatically fixes any wrong solutions in the bank using the upgraded coding model.
+   - **Accounts 2+ (Perfect Runs)**: Replays the corrected answer bank using a zero-API Playwright script (`replay_direct.py`) for 100% accuracy and speed.
 
 ---
 
-## 🛠️ Setup & Installation
+## 🛠️ Architecture & Core Components
 
-**Requirements**: Python 3.13+ and [uv](https://github.com/astral-sh/uv).
+```
+┌───────────────────────────────────────────────────────────────┐
+│                        main.py (Wizard)                       │
+│  - Wizard setup & arguments                                   │
+│  - Navigation Brain: gemini-3.1-flash-lite                    │
+│  - Fallback/Recovery Brain: gemini-2.5-flash                 │
+└────────────┬──────────────────────────┬──────────────────────┘
+             │                          │
+  ┌──────────▼───────────┐   ┌─────────▼──────────┐
+  │  code_solver.py      │   │  ai_consultant.py  │
+  │  (Coding Brain)      │   │  (Terminal Help)   │
+  │  Model: gemini-2.5-  │   │  Gemini API →      │
+  │  flash (with thinking)│  │  terminal response │
+  └──────────┬───────────┘   └────────────────────┘
+             │
+  ┌──────────▼───────────┐   ┌────────────────────┐
+  │  replay_direct.py    │   │  session_store.py  │
+  │  (Zero-API Replay)   │   │  (Local JSON)      │
+  └──────────────────────┘   └────────────────────┘
+```
 
-### 1. Clone & Install
+- **`stealth.py`**: Configures Playwright args (`AutomationControlled`, custom User-Agent, ghost cursor paths) to defeat bot-detection signatures.
+- **`visual_grounding.py`**: Utilizes Gemini Vision to locate elements on screenshots and click coordinates if CSS selectors break.
+- **`prompts/`**: GSD-inspired modular prompt system to prevent context rot:
+  - `examly_base.py`: Concise setup instructions.
+  - `examly_coding.py`: Step-by-step DSA solver workflow.
+  - `examly_mcq.py`: MCQ answering strategy.
+  - `examly_submit.py`: Safety submission gates.
+  - `troubleshooting.py`: Modal dismissals, force-enabling buttons, and evasion.
 
+---
+
+## ⚙️ Setup & Installation
+
+### Requirements
+- **Python 3.13+**
+- **[uv](https://github.com/astral-sh/uv)** (recommended package manager)
+
+### 1. Clone & Sync
 ```bash
 git clone https://github.com/sameerreddy789/Browser_Automation.git
 cd Browser_Automation
@@ -86,103 +70,81 @@ uv sync
 ```
 
 ### 2. Configure Environment
-
-Create a `.env` file (see [.env.example](.env.example)):
-
+Create a `.env` file in the root directory (see `.env.example`):
 ```env
-# Required
-GOOGLE_API_KEY=your_gemini_api_key
+# Required Gemini API Key
+GOOGLE_API_KEY=your_gemini_api_key_here
 
-# Credentials (per-site)
-EXAMLY_EMAIL=your_email
-EXAMLY_PASSWORD=your_password
-COURSE_NAME="2028_MBU..."
-TARGET_DATE="Day 5"
+# Course details
+COURSE_NAME="2028_MBU_60 days Skill Development Assessment Course"
 
-# Optional: Proxy rotation (comma-separated)
-PROXY_LIST=http://user:pass@proxy1.com:8000,http://user:pass@proxy2.com:8000
+# Saved accounts for sequential runs
+ACCOUNT_1_EMAIL=sacrifice_account@mbu.asia
+ACCOUNT_1_PASS=password123
 
-# Optional: PocketBase for HITL dashboard
-POCKETBASE_URL=http://127.0.0.1:8090
-```
+ACCOUNT_2_EMAIL=main_account@mbu.asia
+ACCOUNT_2_PASS=password456
 
-### 3. Set Up HITL Dashboard (Optional)
-
-```bash
-# Download PocketBase and create the required collection
-python hitl/setup_pocketbase.py
+ACCOUNT_3_EMAIL=third_account@mbu.asia
+ACCOUNT_3_PASS=password789
 ```
 
 ---
 
-## 💻 Running the Agent
+## 💻 Usage
 
-### Quick Start (All Services)
+### A. Run Single Account (Normal Mode)
+Launch the interactive wizard to enter credentials, date, and task:
 ```bash
-# Launches PocketBase + Streamlit Dashboard + Agent
-python run.py --url "https://example.com" --task "Do something"
+uv run python main.py
 ```
 
-### Agent Only
-```powershell
-# Windows PowerShell (Unicode support)
-$env:PYTHONIOENCODING="utf-8"; uv run python main.py
-```
-
-### Command Line Arguments
+Or run directly with arguments:
 ```bash
-uv run python main.py \
-  --url "https://example.com" \
-  --task "Find and list active hackathons" \
-  --headless
+uv run python main.py --email "user@mbu.asia" --password "pass123" --task "Take the Day 18 Assessment"
 ```
 
-| Flag | Description |
-|------|-------------|
-| `--url` | Target website URL |
-| `--task` | Plain English task description |
-| `--email` | Login email |
-| `--password` | Login password |
-| `--headless` | Run browser invisibly (default: visible) |
-| `--user-data-dir` | Browser profile path (default: `./agent_profile`) |
-| `--no-stealth` | Disable anti-bot stealth mode |
-| `--queue` | Dispatch task to Taskiq Redis worker queue instead of running locally |
+### B. Run Multi-Account Pipeline
+Sequentially run the sacrifice account, trigger AI answer-bank fixes, and replay on the remaining accounts:
+```bash
+uv run python multi_run.py --day "Day 18"
+```
+*Use `--skip-sacrifice` if you already ran the first account and have the JSON answer bank ready.*
 
-### Launcher Flags (run.py only)
-| Flag | Description |
-|------|-------------|
-| `--no-dashboard` | Skip launching the Streamlit dashboard |
-| `--no-pocketbase` | Skip launching PocketBase |
+### C. Direct Zero-API Replay
+To replay on an account without consuming any LLM API quota:
+```bash
+uv run python replay_direct.py --email "user@mbu.asia" --password "pass123" --day "Day 18"
+```
 
 ---
 
-## 📁 Repository Structure
+## 📂 Repository Structure
 
 ```
 Browser_Automation/
-├── main.py                    # Core agent: wizard, LLM setup, all controller actions
-├── run.py                     # All-in-one launcher (PocketBase + Streamlit + Agent)
-├── stealth.py                 # Anti-bot: playwright-stealth, curl_cffi, browser args
-├── visual_grounding.py        # Gemini vision: find/click elements by screenshot
-├── memory_manager.py          # Mem0 long-term graph/vector memory integration
-├── tasks.py                   # Taskiq asynchronous Redis worker queue definitions
-├── hitl/                      # Human-in-the-Loop system
-│   ├── pocketbase_client.py   # Bot ↔ PocketBase state management
-│   ├── dashboard.py           # Streamlit monitoring dashboard
-│   └── setup_pocketbase.py    # One-time PocketBase download & setup
-├── proxy/                     # Proxy management
-│   ├── rotator.py             # Round-robin proxy pool with dead tracking
-│   └── mitm_addon.py          # mitmproxy addon for programmatic evasion and telemetry blocking
-├── parsers/                   # Alternate data parsing engines
-│   └── crawlee_parser.py      # Token-efficient DOM extraction using crawlee
-├── agent_profile/             # Persistent Chromium profile (git-ignored)
-├── agent_mem0_db/             # Local ChromaDB vector database for Mem0 (git-ignored)
-├── pyproject.toml             # Python dependencies (managed by uv)
-└── .env                       # Environment config (git-ignored)
+├── main.py                    # Core agent entry, wizard, custom actions, LLM loop
+├── code_solver.py             # Competitive coding solver (gemini-2.5-flash + thinking)
+├── ai_consultant.py           # Console consultation model for stuck/blocker queries
+├── multi_run.py               # Orchestrator for multi-account test pipelines
+├── replay_direct.py           # Standalone pure Playwright replay player (Zero-API)
+├── session_store.py           # Local session backup/restore (JSON cookies)
+├── stealth.py                 # Anti-bot configurations (arguments, ghost cursor)
+├── visual_grounding.py        # Gemini Vision coordinates finder & descriptor
+├── prompts/                   # GSD-inspired modular system prompts
+│   ├── __init__.py
+│   ├── examly_base.py
+│   ├── examly_coding.py
+│   ├── examly_mcq.py
+│   ├── examly_submit.py
+│   └── troubleshooting.py
+├── proxy/                     # Proxy rotator pool with alive tracking
+├── parsers/                   # crawlee structural text extractor
+├── pyproject.toml             # Project dependencies (uv managed)
+└── .gitignore                 # Excludes .env, sessions/, and local run logs
 ```
 
 ---
 
 ## 📄 License
-
 [Apache 2.0](LICENSE)
