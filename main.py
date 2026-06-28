@@ -736,18 +736,36 @@ async def main():
     nav_model = os.getenv("NAVIGATION_MODEL", "gemini-3.1-flash-lite")
     # Fallback brain: stronger model used when the primary LLM fails repeatedly.
     fallback_model = os.getenv("FALLBACK_MODEL", "gemini-3.1-flash-lite")
-    llm = ChatGoogle(
-        model=nav_model,
-        max_retries=5,
-        retry_base_delay=3.0,
-        retry_max_delay=30.0
-    )
-    fallback_llm = ChatGoogle(
-        model=fallback_model,
-        max_retries=5,
-        retry_base_delay=5.0,
-        retry_max_delay=60.0
-    )
+    
+    if "llama" in nav_model.lower() or "groq" in nav_model.lower() or "mixtral" in nav_model.lower():
+        from langchain_groq import ChatGroq
+        llm = ChatGroq(
+            model=nav_model,
+            temperature=0.1,
+            max_retries=5,
+        )
+    else:
+        llm = ChatGoogle(
+            model=nav_model,
+            max_retries=5,
+            retry_base_delay=3.0,
+            retry_max_delay=30.0
+        )
+
+    if "llama" in fallback_model.lower() or "groq" in fallback_model.lower() or "mixtral" in fallback_model.lower():
+        from langchain_groq import ChatGroq
+        fallback_llm = ChatGroq(
+            model=fallback_model,
+            temperature=0.1,
+            max_retries=5,
+        )
+    else:
+        fallback_llm = ChatGoogle(
+            model=fallback_model,
+            max_retries=5,
+            retry_base_delay=5.0,
+            retry_max_delay=60.0
+        )
 
 
     # ── Initialize Proxy Rotation ─────────────────────────────────────────────
