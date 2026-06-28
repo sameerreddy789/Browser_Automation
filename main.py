@@ -422,6 +422,56 @@ async def solve_coding_with_retry(problem_statement: str, browser_session: Brows
 
     page = await browser_session.get_current_page()
 
+    # ── Ensure editor language is set to Python 3 ────────────────────────────
+    logger.info("🌐 [LANGUAGE SELECTOR]: Ensuring editor language is set to Python 3...")
+    js_set_language = """
+    () => {
+        // 1. Try standard select element
+        const select = document.querySelector('select[id*="language"]') || 
+                       document.querySelector('select.language-select') || 
+                       document.querySelector('select[name*="language"]') ||
+                       document.querySelector('.language-select select');
+        if (select) {
+            const option = Array.from(select.options).find(opt => opt.text.toLowerCase().includes('python'));
+            if (option) {
+                select.value = option.value;
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+                select.dispatchEvent(new Event('input', { bubbles: true }));
+                return "Set standard select to " + option.text;
+            }
+        }
+
+        // 2. Try custom bootstrap/div dropdowns
+        const dropdownToggles = Array.from(document.querySelectorAll('.dropdown-toggle, button, [role="button"], .mat-select-trigger, div')).filter(el => {
+            const text = (el.innerText || '').trim();
+            return /^(c\\+\\+|java|python|c#|javascript|c|language)$/i.test(text) || el.classList.contains('language-dropdown');
+        });
+
+        for (const toggle of dropdownToggles) {
+            try {
+                toggle.click();
+                const items = Array.from(document.querySelectorAll('.dropdown-menu a, .dropdown-item, li, span, button')).filter(item => {
+                    const text = (item.innerText || '').trim();
+                    return /python\\s*3/i.test(text) && item.offsetWidth > 0;
+                });
+                if (items.length > 0) {
+                    items[0].click();
+                    return "Selected custom dropdown item: " + items[0].innerText;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+        return "Could not set language automatically";
+    }
+    """
+    try:
+        lang_res = await page.evaluate(js_set_language)
+        logger.info(f"🌐 [LANGUAGE SELECTOR RESULT]: {lang_res}")
+        await asyncio.sleep(2.0)
+    except Exception as e:
+        logger.warning(f"Failed to auto-select language: {e}")
+
     # Build the callback functions that code_solver will use to drive the browser
     async def type_code_fn(code: str):
         await _type_code_into_editor(page, code)
