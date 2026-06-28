@@ -27,6 +27,10 @@ answers_*.txt
 # Debug screenshots (generated during failed runs)
 debug_*.png
 
+# Logs and training artifacts
+*.log
+nav_training_log.txt
+
 # AI consultant logs
 consultant_*.log
 
@@ -35,3 +39,7 @@ nursing_computer_basics_course.md
 
 # Editor config
 .vscode/
+
+# Ruff / pytest cache
+.ruff_cache/
+.pytest_cache/

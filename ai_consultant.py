@@ -32,9 +32,8 @@ from loguru import logger
 logger = logger.bind(name="browser_use.ai_consultant")
 
 # The consultant model — override via CONSULTANT_MODEL env var.
-# Default to gemini-2.5-flash: strong enough for reasoning, fast enough for
-# interactive terminal use.
-CONSULTANT_MODEL = os.getenv("CONSULTANT_MODEL", "gemini-2.5-flash")
+# Default to gemini-3.1-flash-lite.
+CONSULTANT_MODEL = os.getenv("CONSULTANT_MODEL", "gemini-3.1-flash-lite")
 
 SYSTEM_PROMPT = """You are an AI assistant helping a browser automation agent.
 The agent is taking an online test on the MBU Examly platform and has hit a blocker

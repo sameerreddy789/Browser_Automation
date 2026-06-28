@@ -19,4 +19,5 @@ dependencies = [
     "pillow",
     # Page data extraction (optional but used by scrape_text_data action)
     "crawlee[playwright]>=1.7.2",
+    "groq>=1.0.0",
 ]

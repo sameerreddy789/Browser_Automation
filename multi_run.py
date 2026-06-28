@@ -189,7 +189,7 @@ def run_agent_for_account(account: dict, mode: str, bank_file: str,
         "--task", f"Take the {target_date} Assessment",
         "--mode", mode,
         "--answer-bank", os.path.join(project_root, bank_file),
-        "--fresh-profile",  # Clean browser state for each account
+        "--fresh-profile",
     ]
     
     if extra_args:
@@ -289,37 +289,19 @@ def main():
         print(f"{'='*60}\n")
         return
     
-    # ── Phase 3+: Perfect Runs (Zero-API Direct Replay) ─────────────────────
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    replay_script = os.path.join(project_root, "replay_direct.py")
-    
+    # ── Phase 3+: Perfect Runs (API Agent Replay) ───────────────────────────
     for i, account in enumerate(accounts[1:], 2):
         print(f"\n{'─'*60}")
         print(f"  🎯 PHASE {i}: PERFECT RUN — {account['email']}")
-        print("  Using DIRECT replay (zero API calls)")
+        print("  Using AI Agent replay with API keys")
         print(f"{'─'*60}\n")
         
-        cmd = [
-            sys.executable, replay_script,
-            "--email", account["email"],
-            "--password", account["password"],
-            "--day", target_date,
-            "--answer-bank", os.path.join(project_root, bank_file),
-        ]
-        
-        if args.course:
-            cmd.extend(["--course", args.course])
-        
-        if args.headless:
-            cmd.append("--headless")
-        
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
-        
-        returncode = subprocess.run(cmd, cwd=project_root, env=env).returncode
+        returncode = run_agent_for_account(
+            account, "replay", bank_file, target_date, extra_args, args.course
+        )
         
         if returncode != 0:
-            print(f"  ⚠️  Replay exited with code {returncode}")
+            print(f"  ⚠️  Agent exited with code {returncode}")
         
         print(f"\n  ✅ Run complete for {account['email']}")
     

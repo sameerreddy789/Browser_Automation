@@ -84,7 +84,7 @@ async def solve_captcha_image(image_selector: str, browser_session: BrowserSessi
         
         client = genai.Client()
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.1-flash-lite',
             contents=[
                 image,
                 "Identify the alphanumeric characters in this CAPTCHA image. "
@@ -216,40 +216,277 @@ async def visual_describe_page(browser_session: BrowserSession) -> str:
 
 # ── Dedicated Code Solver Actions ─────────────────────────────────────────────
 
-@controller.action(
-    description="Solves a DSA/coding question using a powerful dedicated AI model (gemini-2.5-flash with deep reasoning). "
-                "Pass the COMPLETE problem statement text including ALL sample inputs/outputs, constraints, input/output format, and any notes. "
-                "The more complete the problem description, the better the solution. "
-                "Returns clean C++ code ready to inject into the Monaco editor. "
-                "ALWAYS use this action for coding questions instead of trying to write code yourself — this solver is far more capable."
-)
-async def solve_coding_question(problem_statement: str, language: str = "python") -> str:
-    from code_solver import solve_problem
-    code = await solve_problem(problem_statement, language)
-    return f"INJECT THIS CODE INTO MONACO EDITOR:\n{code}"
+async def _type_code_into_editor(page, code: str):
+    """
+    Internal helper: clears the Monaco editor and types code character-by-character.
+    This is the `type_code_fn` callback for code_solver.solve_with_retry().
+    """
+    import random
+
+    # Disable Monaco's auto-closing features to avoid code corruption
+    js_disable_autoclose = """
+    () => {
+        try {
+            if (window.monaco && window.monaco.editor) {
+                const models = window.monaco.editor.getModels();
+                models.forEach(model => {
+                    const editors = model._associatedEditors || [];
+                    editors.forEach(e => {
+                        if (e && typeof e.updateOptions === 'function') {
+                            e.updateOptions({
+                                autoClosingBrackets: 'never',
+                                autoClosingQuotes: 'never',
+                                autoClosingDelete: 'never',
+                                autoClosingOvertype: 'never',
+                                autoSurround: 'never'
+                            });
+                        }
+                    });
+                });
+                return "Disabled auto-close options in Monaco";
+            }
+            return "Monaco not active";
+        } catch (e) {
+            return "Error: " + e.toString();
+        }
+    }
+    """
+    try:
+        await page.evaluate(js_disable_autoclose)
+    except Exception:
+        pass
+
+    # Try Monaco textarea first, then fallback to generic editor
+    monaco_textarea = None
+    try:
+        monaco_textarea = await page.query_selector('.monaco-editor textarea')
+    except Exception:
+        pass
+
+    if monaco_textarea:
+        await monaco_textarea.focus()
+    else:
+        # Fallback: try any textarea or contenteditable div
+        try:
+            element = await page.query_selector('textarea, div[contenteditable="true"]')
+            if element:
+                await element.focus()
+        except Exception:
+            pass
+
+    # Clear existing code
+    await page.keyboard.press("Control+A")
+    await asyncio.sleep(random.uniform(0.1, 0.2))
+    await page.keyboard.press("Backspace")
+    await asyncio.sleep(random.uniform(0.2, 0.3))
+
+    # Type character-by-character with human-like delay
+    for char in code:
+        await page.keyboard.type(char)
+        await asyncio.sleep(random.uniform(0.05, 0.09))
+
+    logger.info(f"[SELF-HEAL] Typed {len(code)} chars into editor")
+
+
+async def _compile_and_get_verdict(page) -> dict:
+    """
+    Internal helper: clicks Compile & Run, waits for results, scrapes verdict.
+    This is the `compile_and_get_verdict_fn` callback for code_solver.solve_with_retry().
+
+    Returns:
+        dict with keys: verdict, details, passed, total
+    """
+    import random
+
+    # Click the "Compile & Run" button
+    compile_btn = None
+    for selector in [
+        '#programme-compile',
+        'button:has-text("Compile & Run")',
+        'button:has-text("Compile")',
+        '[id*="compile"]',
+    ]:
+        try:
+            btn = page.locator(selector).first
+            if await btn.count() > 0:
+                compile_btn = btn
+                break
+        except Exception:
+            continue
+
+    if not compile_btn:
+        logger.error("[SELF-HEAL] Could not find Compile & Run button!")
+        return {"verdict": "ERROR", "details": "Compile button not found", "passed": 0, "total": 0}
+
+    await compile_btn.click()
+    logger.info("[SELF-HEAL] Clicked Compile & Run, waiting for results...")
+
+    # Wait for results to appear (the test results panel takes time)
+    await asyncio.sleep(8)  # Initial wait for compilation + execution
+
+    # Poll for results — look for the results container
+    max_wait = 60  # max seconds to wait for results
+    waited = 0
+    poll_interval = 3
+
+    while waited < max_wait:
+        # Try to find result indicators on the page
+        result_text = ""
+        try:
+            # Examly shows results in various ways — try to grab the full results area
+            result_selectors = [
+                '.testcase-result',
+                '.test-case-result',
+                '[class*="testcase"]',
+                '[class*="result"]',
+                '.compilation-result',
+                '#output-panel',
+                '.output-area',
+                '.CodeMirror-code',
+            ]
+            for sel in result_selectors:
+                try:
+                    el = page.locator(sel).first
+                    if await el.count() > 0:
+                        text = await el.inner_text()
+                        if text and text.strip():
+                            result_text += text.strip() + "\n"
+                except Exception:
+                    continue
+
+            # Also try to get the full page text around the results area
+            if not result_text:
+                try:
+                    # Broader search — get text from the main content area
+                    body_text = await page.inner_text('body')
+                    # Look for test case result patterns
+                    import re
+                    tc_matches = re.findall(
+                        r'(?:Testcase|Test\s*Case|Sample)\s*\d+\s*[-:]\s*(?:Passed|Failed|Error|TLE|Runtime)',
+                        body_text, re.IGNORECASE
+                    )
+                    if tc_matches:
+                        result_text = "\n".join(tc_matches)
+
+                    # Also look for "X/Y Sample testcase passed" pattern
+                    summary_match = re.search(
+                        r'(\d+)\s*/\s*(\d+)\s*(?:Sample\s*)?(?:testcase|test\s*case)s?\s*passed',
+                        body_text, re.IGNORECASE
+                    )
+                    if summary_match:
+                        result_text += f"\n{summary_match.group(0)}"
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.warning(f"[SELF-HEAL] Error reading results: {e}")
+
+        # Parse the results
+        if result_text:
+            return _parse_verdict(result_text)
+
+        await asyncio.sleep(poll_interval)
+        waited += poll_interval
+
+    # Timeout — couldn't get results
+    logger.warning("[SELF-HEAL] Timed out waiting for test results")
+    return {"verdict": "TIMEOUT", "details": "Timed out waiting for results", "passed": 0, "total": 0}
+
+
+def _parse_verdict(result_text: str) -> dict:
+    """Parse the raw result text from the Examly results panel into a structured verdict."""
+    import re
+
+    result_text_lower = result_text.lower()
+    details = result_text.strip()
+
+    # Check for compilation error
+    if "compilation error" in result_text_lower or "compile error" in result_text_lower:
+        return {"verdict": "CE", "details": details, "passed": 0, "total": 0}
+
+    # Check for "X/Y Sample testcase passed" pattern
+    summary_match = re.search(
+        r'(\d+)\s*/\s*(\d+)\s*(?:sample\s*)?(?:testcase|test\s*case)s?\s*passed',
+        result_text_lower,
+    )
+    if summary_match:
+        passed = int(summary_match.group(1))
+        total = int(summary_match.group(2))
+        if passed == total:
+            return {"verdict": "ACCEPTED", "details": details, "passed": passed, "total": total}
+        else:
+            # Determine the type of failure
+            verdict = "WA"  # default
+            if "time limit" in result_text_lower or "tle" in result_text_lower:
+                verdict = "TLE"
+            elif "runtime error" in result_text_lower:
+                verdict = "RE"
+            return {"verdict": verdict, "details": details, "passed": passed, "total": total}
+
+    # Count individual pass/fail lines
+    passed_count = len(re.findall(r'(?:testcase|test\s*case)\s*\d+\s*[-:]\s*passed', result_text_lower))
+    failed_count = len(re.findall(r'(?:testcase|test\s*case)\s*\d+\s*[-:]\s*failed', result_text_lower))
+    total = passed_count + failed_count
+
+    if total > 0:
+        if failed_count == 0:
+            return {"verdict": "ACCEPTED", "details": details, "passed": passed_count, "total": total}
+        else:
+            verdict = "WA"
+            if "time limit" in result_text_lower:
+                verdict = "TLE"
+            elif "runtime error" in result_text_lower:
+                verdict = "RE"
+            return {"verdict": verdict, "details": details, "passed": passed_count, "total": total}
+
+    # Couldn't parse — return as unknown with the raw text
+    return {"verdict": "UNKNOWN", "details": details, "passed": 0, "total": 0}
+
 
 @controller.action(
-    description="Fixes a FAILING coding solution by analyzing test case failures. "
-                "Pass the original problem statement, your current code that fails, and the failure details "
-                "(expected output vs actual output, or error messages from the compile/run panel). "
-                "Returns a fixed version of the code. Use this when 'Compile & Run' shows test case failures."
+    description="SELF-HEALING coding solver. Pass the COMPLETE problem statement and this action handles EVERYTHING automatically: "
+                "it generates code, types it into the editor, clicks Compile & Run, reads the verdict, "
+                "and if any test cases fail, it fixes the code and retries — up to 3 attempts total. "
+                "Returns the final verdict and code. ALWAYS use this for coding questions instead of solving manually. "
+                "After this returns, check the verdict: if ACCEPTED, click Submit Code. If still failing after 3 attempts, "
+                "submit the best attempt and move on."
 )
-async def fix_coding_solution(problem_statement: str, current_code: str, 
-                               failure_details: str, language: str = "python") -> str:
-    from code_solver import fix_solution
-    fixed_code = await fix_solution(problem_statement, current_code, failure_details, language)
-    return f"INJECT THIS FIXED CODE INTO MONACO EDITOR:\n{fixed_code}"
+async def solve_coding_with_retry(problem_statement: str, browser_session: BrowserSession,
+                                   language: str = "python") -> str:
+    from code_solver import solve_with_retry
 
-@controller.action(
-    description="Last resort: re-solves a coding question from scratch with a DIFFERENT algorithmic approach. "
-                "Use this only after both solve_coding_question and fix_coding_solution have failed. "
-                "Pass the problem, the previous failing code, and ALL failure details accumulated so far."
-)
-async def retry_coding_solution(problem_statement: str, previous_code: str,
-                                 all_failure_details: str, language: str = "python") -> str:
-    from code_solver import solve_problem_retry
-    code = await solve_problem_retry(problem_statement, previous_code, all_failure_details, language)
-    return f"INJECT THIS NEW CODE INTO MONACO EDITOR:\n{code}"
+    page = await browser_session.get_current_page()
+
+    # Build the callback functions that code_solver will use to drive the browser
+    async def type_code_fn(code: str):
+        await _type_code_into_editor(page, code)
+
+    async def compile_and_get_verdict_fn():
+        return await _compile_and_get_verdict(page)
+
+    # Run the self-healing loop
+    result = await solve_with_retry(
+        problem_statement=problem_statement,
+        type_code_fn=type_code_fn,
+        compile_and_get_verdict_fn=compile_and_get_verdict_fn,
+        language=language,
+    )
+
+    verdict = result["verdict"]
+    attempts = result["attempts"]
+    passed = result["passed"]
+    total = result["total"]
+
+    if verdict == "ACCEPTED" or (total > 0 and passed == total):
+        return (
+            f"ALL TEST CASES PASSED ({passed}/{total}) on attempt {attempts}. "
+            f"Click 'Submit Code' now to submit this solution."
+        )
+    else:
+        return (
+            f"BEST ATTEMPT after {attempts} tries: {verdict} ({passed}/{total} test cases passed). "
+            f"Click 'Submit Code' to submit this best attempt and move to the next question."
+        )
 
 @controller.action(
     description="Types text into an input element character-by-character with a realistic human-like delay (80ms-120ms) "
@@ -260,8 +497,9 @@ async def human_type(selector: str, text: str, browser_session: BrowserSession) 
     import random
     try:
         page = await browser_session.get_current_page()
-        element = await page.query_selector(selector)
-        if not element:
+        element = page.locator(selector).first
+        
+        if await element.count() == 0:
             return f"Error: Element with selector '{selector}' not found."
         
         # Focus the element
@@ -286,8 +524,9 @@ async def human_type(selector: str, text: str, browser_session: BrowserSession) 
 
 
 @controller.action(
-    description="Injects code safely into the Monaco editor or fallback textarea character-by-character with a human-like delay "
-                "to bypass bot detection. ALWAYS use this action for coding questions."
+    description="Injects ALREADY-KNOWN code into the Monaco editor (e.g., from a saved answer bank lookup). "
+                "Use this ONLY when you already have the correct code from lookup_saved_answer. "
+                "For NEW coding questions, use solve_coding_with_retry instead — it handles everything."
 )
 async def inject_code_to_editor(code: str, browser_session: BrowserSession) -> str:
     import random
@@ -572,7 +811,7 @@ async def main():
     # Navigation brain: lightweight + fast for clicking/reading/navigating.
     nav_model = os.getenv("NAVIGATION_MODEL", "gemini-3.1-flash-lite")
     # Fallback brain: stronger model used when the primary LLM fails repeatedly.
-    fallback_model = os.getenv("FALLBACK_MODEL", "gemini-2.5-flash")
+    fallback_model = os.getenv("FALLBACK_MODEL", "gemini-3.1-flash-lite")
     llm = ChatGoogle(
         model=nav_model,
         max_retries=5,
