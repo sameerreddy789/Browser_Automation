@@ -744,6 +744,7 @@ async def main():
             temperature=0.1,
             max_retries=5,
         )
+        object.__setattr__(llm, 'provider', 'groq')
     else:
         llm = ChatGoogle(
             model=nav_model,
@@ -759,6 +760,7 @@ async def main():
             temperature=0.1,
             max_retries=5,
         )
+        object.__setattr__(fallback_llm, 'provider', 'groq')
     else:
         fallback_llm = ChatGoogle(
             model=fallback_model,
