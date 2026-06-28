@@ -769,30 +769,52 @@ async def main():
             retry_max_delay=60.0
         )
 
-    # ── Apply Rate Limiting to prevent Gemini 429 15 RPM limit ────────────────
-    def add_rate_limiter(llm_instance, min_delay=6.0):
+    # ── Apply Rate Limiting & Retry Backoff to prevent Gemini 429 ─────────────
+    def add_rate_limiter_and_backoff(llm_instance, min_delay=3.0, max_retries=5):
         import time
         original_ainvoke = llm_instance.ainvoke
         # Keep track of the last time this instance was called
         last_call_time = [0.0]
 
         async def rate_limited_ainvoke(*args, **kwargs):
+            # 1. Global throttling delay between steps
             now = time.time()
             elapsed = now - last_call_time[0]
             if elapsed < min_delay:
                 wait_time = min_delay - elapsed
-                logger.info(f"⏳ [RATE LIMITER]: Sleeping for {wait_time:.2f}s to respect Gemini 15 RPM limit...")
+                logger.info(f"⏳ [THROTTLING]: Waiting {wait_time:.2f}s before next request...")
                 await asyncio.sleep(wait_time)
-            last_call_time[0] = time.time()
-            return await original_ainvoke(*args, **kwargs)
+            
+            # 2. Retry loop with exponential backoff
+            backoff = 2.0
+            for attempt in range(1, max_retries + 1):
+                try:
+                    last_call_time[0] = time.time()
+                    return await original_ainvoke(*args, **kwargs)
+                except Exception as e:
+                    err_str = str(e)
+                    is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "rate limit" in err_str.lower()
+                    
+                    if is_rate_limit and attempt < max_retries:
+                        logger.warning(
+                            f"⚠️ [429 RATE LIMIT]: Hit rate limit on attempt {attempt}/{max_retries}. "
+                            f"Retrying in {backoff}s..."
+                        )
+                        await asyncio.sleep(backoff)
+                        backoff *= 2.0  # double the wait time: 2s -> 4s -> 8s -> 16s
+                    else:
+                        logger.error(f"❌ [API ERROR]: Request failed on attempt {attempt}/{max_retries}: {e}")
+                        raise e
+            
+            raise RuntimeError(f"Failed to execute LLM call after {max_retries} retries due to rate limits.")
 
         llm_instance.ainvoke = rate_limited_ainvoke
 
     # Only apply rate limiting to Gemini models (Groq has high limits)
     if "gemini" in nav_model.lower():
-        add_rate_limiter(llm)
+        add_rate_limiter_and_backoff(llm)
     if "gemini" in fallback_model.lower():
-        add_rate_limiter(fallback_llm)
+        add_rate_limiter_and_backoff(fallback_llm)
 
 
     # ── Initialize Proxy Rotation ─────────────────────────────────────────────
