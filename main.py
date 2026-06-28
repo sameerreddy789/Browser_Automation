@@ -772,6 +772,7 @@ async def main():
     # ── Apply Rate Limiting & Retry Backoff to prevent Gemini 429 ─────────────
     def add_rate_limiter_and_backoff(llm_instance, min_delay=3.0, max_retries=5):
         import time
+        import re
         original_ainvoke = llm_instance.ainvoke
         # Keep track of the last time this instance was called
         last_call_time = [0.0]
@@ -785,7 +786,7 @@ async def main():
                 logger.info(f"⏳ [THROTTLING]: Waiting {wait_time:.2f}s before next request...")
                 await asyncio.sleep(wait_time)
             
-            # 2. Retry loop with exponential backoff
+            # 2. Retry loop with exponential backoff / dynamic sleep
             backoff = 2.0
             for attempt in range(1, max_retries + 1):
                 try:
@@ -796,12 +797,22 @@ async def main():
                     is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "rate limit" in err_str.lower()
                     
                     if is_rate_limit and attempt < max_retries:
-                        logger.warning(
-                            f"⚠️ [429 RATE LIMIT]: Hit rate limit on attempt {attempt}/{max_retries}. "
-                            f"Retrying in {backoff}s..."
-                        )
-                        await asyncio.sleep(backoff)
-                        backoff *= 2.0  # double the wait time: 2s -> 4s -> 8s -> 16s
+                        # Try to parse exact wait time from API error message (e.g. "Please retry in 53s")
+                        match = re.search(r"[Pp]lease retry in ([\d\.]+)\s*s", err_str)
+                        if match:
+                            wait_time = float(match.group(1)) + 2.0
+                            logger.warning(
+                                f"⚠️ [429 RATE LIMIT]: Hit rate limit. API requested wait of {match.group(1)}s. "
+                                f"Sleeping for {wait_time:.2f}s before attempt {attempt + 1}/{max_retries}..."
+                            )
+                        else:
+                            wait_time = backoff
+                            logger.warning(
+                                f"⚠️ [429 RATE LIMIT]: Hit rate limit. Exponential backoff: "
+                                f"Sleeping for {wait_time:.2f}s before attempt {attempt + 1}/{max_retries}..."
+                            )
+                            backoff *= 2.0
+                        await asyncio.sleep(wait_time)
                     else:
                         logger.error(f"❌ [API ERROR]: Request failed on attempt {attempt}/{max_retries}: {e}")
                         raise e
