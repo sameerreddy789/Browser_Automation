@@ -864,21 +864,30 @@ async def main():
                     return await original_ainvoke(*args, **kwargs)
                 except Exception as e:
                     err_str = str(e)
-                    is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "rate limit" in err_str.lower()
+                    is_retryable = (
+                        "429" in err_str or 
+                        "503" in err_str or 
+                        "500" in err_str or
+                        "RESOURCE_EXHAUSTED" in err_str or 
+                        "unavailable" in err_str.lower() or
+                        "rate limit" in err_str.lower() or
+                        "temporary" in err_str.lower() or
+                        "high demand" in err_str.lower()
+                    )
                     
-                    if is_rate_limit and attempt < max_retries:
+                    if is_retryable and attempt < max_retries:
                         # Try to parse exact wait time from API error message (e.g. "Please retry in 53s")
                         match = re.search(r"[Pp]lease retry in ([\d\.]+)\s*s", err_str)
                         if match:
                             wait_time = float(match.group(1)) + 2.0
                             logger.warning(
-                                f"⚠️ [429 RATE LIMIT]: Hit rate limit. API requested wait of {match.group(1)}s. "
+                                f"⚠️ [API RETRYABLE ERROR]: Hit temporary error/rate limit. API requested wait of {match.group(1)}s. "
                                 f"Sleeping for {wait_time:.2f}s before attempt {attempt + 1}/{max_retries}..."
                             )
                         else:
                             wait_time = backoff
                             logger.warning(
-                                f"⚠️ [429 RATE LIMIT]: Hit rate limit. Exponential backoff: "
+                                f"⚠️ [API RETRYABLE ERROR]: Hit temporary error/rate limit. Exponential backoff: "
                                 f"Sleeping for {wait_time:.2f}s before attempt {attempt + 1}/{max_retries}..."
                             )
                             backoff *= 2.0
