@@ -416,23 +416,28 @@ def _parse_verdict(result_text: str) -> dict:
                 "After this returns, check the verdict: if ACCEPTED, click Submit Code. If still failing after 3 attempts, "
                 "submit the best attempt and move on."
 )
-async def solve_coding_with_retry(problem_statement: str, browser_session: BrowserSession,
-                                   language: str = "python") -> str:
-    from code_solver import solve_with_retry
-
-    page = await browser_session.get_current_page()
-
-    # ── Ensure editor language is set to Python 3 ────────────────────────────
-    logger.info("🌐 [LANGUAGE SELECTOR]: Ensuring editor language is set to Python 3...")
+async def _ensure_editor_language(page, code: str):
+    """
+    Detects if the code is C or Python and selects the corresponding language in the Examly dropdown.
+    """
+    is_c = "#include" in code or "int main" in code or "scanf" in code or "printf" in code
+    target_lang = "c" if is_c else "python"
+    
+    logger.info(f"🌐 [LANGUAGE SELECTOR]: Ensuring editor language is set to {target_lang.upper()}...")
+    
     js_set_language = """
-    () => {
+    (lang) => {
         // 1. Try standard select element
         const select = document.querySelector('select[id*="language"]') || 
                        document.querySelector('select.language-select') || 
                        document.querySelector('select[name*="language"]') ||
                        document.querySelector('.language-select select');
         if (select) {
-            const option = Array.from(select.options).find(opt => opt.text.toLowerCase().includes('python'));
+            const option = Array.from(select.options).find(opt => {
+                const text = opt.text.toLowerCase();
+                if (lang === 'c') return text === 'c' || text.startsWith('c ') || text.includes('(gcc)');
+                return text.includes('python');
+            });
             if (option) {
                 select.value = option.value;
                 select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -444,15 +449,16 @@ async def solve_coding_with_retry(problem_statement: str, browser_session: Brows
         // 2. Try custom bootstrap/div dropdowns
         const dropdownToggles = Array.from(document.querySelectorAll('.dropdown-toggle, button, [role="button"], .mat-select-trigger, div')).filter(el => {
             const text = (el.innerText || '').trim();
-            return /^(c\\+\\+|java|python|c#|javascript|c|language)$/i.test(text) || el.classList.contains('language-dropdown');
+            return /^(c\\\\+\\\\+|java|python|c#|javascript|c|language)$/i.test(text) || el.classList.contains('language-dropdown');
         });
 
         for (const toggle of dropdownToggles) {
             try {
                 toggle.click();
                 const items = Array.from(document.querySelectorAll('.dropdown-menu a, .dropdown-item, li, span, button')).filter(item => {
-                    const text = (item.innerText || '').trim();
-                    return /python\\s*3/i.test(text) && item.offsetWidth > 0;
+                    const text = (item.innerText || '').trim().toLowerCase();
+                    const match = (lang === 'c') ? (text === 'c' || text.startsWith('c ') || text.includes('(gcc)')) : text.includes('python');
+                    return match && item.offsetWidth > 0;
                 });
                 if (items.length > 0) {
                     items[0].click();
@@ -466,11 +472,20 @@ async def solve_coding_with_retry(problem_statement: str, browser_session: Brows
     }
     """
     try:
-        lang_res = await page.evaluate(js_set_language)
+        lang_res = await page.evaluate(js_set_language, target_lang)
         logger.info(f"🌐 [LANGUAGE SELECTOR RESULT]: {lang_res}")
         await asyncio.sleep(2.0)
     except Exception as e:
         logger.warning(f"Failed to auto-select language: {e}")
+
+async def solve_coding_with_retry(problem_statement: str, browser_session: BrowserSession,
+                                   language: str = "python") -> str:
+    from code_solver import solve_with_retry
+
+    page = await browser_session.get_current_page()
+
+    # Ensure editor language is set based on target language
+    await _ensure_editor_language(page, "#include" if language.lower() == "c" else "import")
 
     # Build the callback functions that code_solver will use to drive the browser
     async def type_code_fn(code: str):
@@ -533,10 +548,15 @@ async def human_type(selector: str, text: str, browser_session: BrowserSession) 
 async def inject_code_to_editor(code: str, browser_session: BrowserSession) -> str:
     try:
         page = await browser_session.get_current_page()
+        
+        # 1. Ensure language matches code type
+        await _ensure_editor_language(page, code)
+        
+        # 2. Inject code via ACE API or DOM
         js_inject = """
         (code) => {
             try {
-                // 1. Try ACE editor (used by Examly)
+                // Try ACE editor (used by Examly)
                 const aceEditorEl = document.querySelector('.ace_editor');
                 if (aceEditorEl && window.ace) {
                     const editor = window.ace.edit(aceEditorEl);
@@ -549,7 +569,7 @@ async def inject_code_to_editor(code: str, browser_session: BrowserSession) -> s
             }
 
             try {
-                // 2. Try standard or ACE input textarea/contenteditable
+                // Try standard or ACE input textarea/contenteditable
                 const tx = document.querySelector('textarea.ace_text-input') || document.querySelector('textarea') || document.querySelector('[contenteditable="true"]');
                 if (tx) {
                     tx.focus();
