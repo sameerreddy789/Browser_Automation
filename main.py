@@ -770,7 +770,7 @@ async def main():
         )
 
     # ── Apply Rate Limiting to prevent Gemini 429 15 RPM limit ────────────────
-    def add_rate_limiter(llm_instance, min_delay=4.5):
+    def add_rate_limiter(llm_instance, min_delay=6.0):
         import time
         original_ainvoke = llm_instance.ainvoke
         # Keep track of the last time this instance was called
