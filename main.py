@@ -408,14 +408,6 @@ def _parse_verdict(result_text: str) -> dict:
     return {"verdict": "UNKNOWN", "details": details, "passed": 0, "total": 0}
 
 
-@controller.action(
-    description="SELF-HEALING coding solver. Pass the COMPLETE problem statement and this action handles EVERYTHING automatically: "
-                "it generates code, types it into the editor, clicks Compile & Run, reads the verdict, "
-                "and if any test cases fail, it fixes the code and retries — up to 3 attempts total. "
-                "Returns the final verdict and code. ALWAYS use this for coding questions instead of solving manually. "
-                "After this returns, check the verdict: if ACCEPTED, click Submit Code. If still failing after 3 attempts, "
-                "submit the best attempt and move on."
-)
 async def _ensure_editor_language(page, code: str):
     """
     Detects if the code is C or Python and selects the corresponding language in the Examly dropdown.
@@ -478,6 +470,14 @@ async def _ensure_editor_language(page, code: str):
     except Exception as e:
         logger.warning(f"Failed to auto-select language: {e}")
 
+@controller.action(
+    description="SELF-HEALING coding solver. Pass the COMPLETE problem statement and this action handles EVERYTHING automatically: "
+                "it generates code, types it into the editor, clicks Compile & Run, reads the verdict, "
+                "and if any test cases fail, it fixes the code and retries — up to 3 attempts total. "
+                "Returns the final verdict and code. ALWAYS use this for coding questions instead of solving manually. "
+                "After this returns, check the verdict: if ACCEPTED, click Submit Code. If still failing after 3 attempts, "
+                "submit the best attempt and move on."
+)
 async def solve_coding_with_retry(problem_statement: str, browser_session: BrowserSession,
                                    language: str = "python") -> str:
     from code_solver import solve_with_retry
