@@ -733,9 +733,9 @@ async def main():
 
     # Set up models.
     # Navigation brain: lightweight + fast for clicking/reading/navigating.
-    nav_model = os.getenv("NAVIGATION_MODEL", "gemini-3.1-flash-lite")
+    nav_model = os.getenv("NAVIGATION_MODEL", "gemini-2.5-flash")
     # Fallback brain: stronger model used when the primary LLM fails repeatedly.
-    fallback_model = os.getenv("FALLBACK_MODEL", "gemini-3.1-flash-lite")
+    fallback_model = os.getenv("FALLBACK_MODEL", "gemini-2.5-flash")
     
     if "llama" in nav_model.lower() or "groq" in nav_model.lower() or "mixtral" in nav_model.lower():
         from langchain_groq import ChatGroq
@@ -768,6 +768,31 @@ async def main():
             retry_base_delay=5.0,
             retry_max_delay=60.0
         )
+
+    # ── Apply Rate Limiting to prevent Gemini 429 15 RPM limit ────────────────
+    def add_rate_limiter(llm_instance, min_delay=4.5):
+        import time
+        original_ainvoke = llm_instance.ainvoke
+        # Keep track of the last time this instance was called
+        last_call_time = [0.0]
+
+        async def rate_limited_ainvoke(*args, **kwargs):
+            now = time.time()
+            elapsed = now - last_call_time[0]
+            if elapsed < min_delay:
+                wait_time = min_delay - elapsed
+                logger.info(f"⏳ [RATE LIMITER]: Sleeping for {wait_time:.2f}s to respect Gemini 15 RPM limit...")
+                await asyncio.sleep(wait_time)
+            last_call_time[0] = time.time()
+            return await original_ainvoke(*args, **kwargs)
+
+        llm_instance.ainvoke = rate_limited_ainvoke
+
+    # Only apply rate limiting to Gemini models (Groq has high limits)
+    if "gemini" in nav_model.lower():
+        add_rate_limiter(llm)
+    if "gemini" in fallback_model.lower():
+        add_rate_limiter(fallback_llm)
 
 
     # ── Initialize Proxy Rotation ─────────────────────────────────────────────
