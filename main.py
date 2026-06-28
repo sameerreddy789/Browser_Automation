@@ -75,16 +75,17 @@ def save_agent_knowledge(site_name: str, error_description: str, solution_javasc
 async def solve_captcha_image(image_selector: str, browser_session: BrowserSession) -> str:
     try:
         page = await browser_session.get_current_page()
-        element = await page.query_selector(image_selector)
-        if not element:
+        elements = await page.get_elements_by_css_selector(image_selector)
+        if not elements:
             return f"Error: CAPTCHA image element with selector '{image_selector}' not found."
+        element = elements[0]
             
         screenshot_bytes = await element.screenshot()
         image = Image.open(io.BytesIO(screenshot_bytes))
         
         client = genai.Client()
         response = client.models.generate_content(
-            model='gemini-3.1-flash-lite',
+            model='gemini-2.5-flash',  # Use gemini-2.5-flash since 3.1-flash-lite quota is exhausted
             contents=[
                 image,
                 "Identify the alphanumeric characters in this CAPTCHA image. "
@@ -107,12 +108,13 @@ async def solve_captcha_image(image_selector: str, browser_session: BrowserSessi
 async def human_click(selector: str, browser_session: BrowserSession) -> str:
     try:
         page = await browser_session.get_current_page()
-        element = await page.query_selector(selector)
-        if not element:
+        elements = await page.get_elements_by_css_selector(selector)
+        if not elements:
             return f"Error: Element with selector '{selector}' not found."
+        element = elements[0]
             
-        cursor = await create_cursor(page)
-        await cursor.click(element)
+        await element.click()
+        return f"Successfully clicked element '{selector}' using CDP click."
         logger.info(f"🖱️ [GHOST CURSOR]: Human-like click on '{selector}' completed.")
         return f"Successfully clicked element '{selector}' using human-like cursor movements."
     except Exception as e:
@@ -218,74 +220,47 @@ async def visual_describe_page(browser_session: BrowserSession) -> str:
 
 async def _type_code_into_editor(page, code: str):
     """
-    Internal helper: clears the Monaco editor and types code character-by-character.
+    Internal helper: clears the ACE/Monaco editor and sets the code value directly via JavaScript.
     This is the `type_code_fn` callback for code_solver.solve_with_retry().
     """
-    import random
-
-    # Disable Monaco's auto-closing features to avoid code corruption
-    js_disable_autoclose = """
-    () => {
+    js_inject = """
+    (code) => {
         try {
-            if (window.monaco && window.monaco.editor) {
-                const models = window.monaco.editor.getModels();
-                models.forEach(model => {
-                    const editors = model._associatedEditors || [];
-                    editors.forEach(e => {
-                        if (e && typeof e.updateOptions === 'function') {
-                            e.updateOptions({
-                                autoClosingBrackets: 'never',
-                                autoClosingQuotes: 'never',
-                                autoClosingDelete: 'never',
-                                autoClosingOvertype: 'never',
-                                autoSurround: 'never'
-                            });
-                        }
-                    });
-                });
-                return "Disabled auto-close options in Monaco";
+            // 1. Try ACE editor (used by Examly)
+            const aceEditorEl = document.querySelector('.ace_editor');
+            if (aceEditorEl && window.ace) {
+                const editor = window.ace.edit(aceEditorEl);
+                editor.setValue(code);
+                editor.clearSelection();
+                return "Successfully set code via ACE editor API";
             }
-            return "Monaco not active";
         } catch (e) {
-            return "Error: " + e.toString();
+            console.error("ACE inject error:", e);
         }
+
+        try {
+            // 2. Try standard or ACE input textarea/contenteditable
+            const tx = document.querySelector('textarea.ace_text-input') || document.querySelector('textarea') || document.querySelector('[contenteditable="true"]');
+            if (tx) {
+                tx.focus();
+                if (tx.tagName === 'TEXTAREA' || tx.tagName === 'INPUT') {
+                    tx.value = code;
+                } else {
+                    tx.innerText = code;
+                }
+                tx.dispatchEvent(new Event('input', { bubbles: true }));
+                tx.dispatchEvent(new Event('change', { bubbles: true }));
+                return "Successfully set code via direct DOM value assignment";
+            }
+        } catch (e) {
+            console.error("DOM inject error:", e);
+        }
+
+        return "Could not find any suitable editor to inject code";
     }
     """
-    try:
-        await page.evaluate(js_disable_autoclose)
-    except Exception:
-        pass
-
-    # Try Monaco textarea first, then fallback to generic editor
-    monaco_textarea = None
-    try:
-        monaco_textarea = await page.query_selector('.monaco-editor textarea')
-    except Exception:
-        pass
-
-    if monaco_textarea:
-        await monaco_textarea.focus()
-    else:
-        # Fallback: try any textarea or contenteditable div
-        try:
-            element = await page.query_selector('textarea, div[contenteditable="true"]')
-            if element:
-                await element.focus()
-        except Exception:
-            pass
-
-    # Clear existing code
-    await page.keyboard.press("Control+A")
-    await asyncio.sleep(random.uniform(0.1, 0.2))
-    await page.keyboard.press("Backspace")
-    await asyncio.sleep(random.uniform(0.2, 0.3))
-
-    # Type character-by-character with human-like delay
-    for char in code:
-        await page.keyboard.type(char)
-        await asyncio.sleep(random.uniform(0.05, 0.09))
-
-    logger.info(f"[SELF-HEAL] Typed {len(code)} chars into editor")
+    res = await page.evaluate(js_inject, code)
+    logger.info(f"⚙️ [EDITOR INJECTION RESULT]: {res}")
 
 
 async def _compile_and_get_verdict(page) -> dict:
@@ -296,20 +271,21 @@ async def _compile_and_get_verdict(page) -> dict:
     Returns:
         dict with keys: verdict, details, passed, total
     """
-    import random
-
     # Click the "Compile & Run" button
     compile_btn = None
     for selector in [
         '#programme-compile',
-        'button:has-text("Compile & Run")',
-        'button:has-text("Compile")',
+        'button',
         '[id*="compile"]',
     ]:
         try:
-            btn = page.locator(selector).first
-            if await btn.count() > 0:
-                compile_btn = btn
+            elements = await page.get_elements_by_css_selector(selector)
+            for el in elements:
+                text = await el.evaluate("() => this.innerText")
+                if "compile" in text.lower() or "run" in text.lower():
+                    compile_btn = el
+                    break
+            if compile_btn:
                 break
         except Exception:
             continue
@@ -330,54 +306,43 @@ async def _compile_and_get_verdict(page) -> dict:
     poll_interval = 3
 
     while waited < max_wait:
-        # Try to find result indicators on the page
         result_text = ""
         try:
-            # Examly shows results in various ways — try to grab the full results area
-            result_selectors = [
-                '.testcase-result',
-                '.test-case-result',
-                '[class*="testcase"]',
-                '[class*="result"]',
-                '.compilation-result',
-                '#output-panel',
-                '.output-area',
-                '.CodeMirror-code',
-            ]
-            for sel in result_selectors:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count() > 0:
-                        text = await el.inner_text()
-                        if text and text.strip():
-                            result_text += text.strip() + "\n"
-                except Exception:
-                    continue
-
-            # Also try to get the full page text around the results area
-            if not result_text:
-                try:
-                    # Broader search — get text from the main content area
-                    body_text = await page.inner_text('body')
-                    # Look for test case result patterns
-                    import re
-                    tc_matches = re.findall(
-                        r'(?:Testcase|Test\s*Case|Sample)\s*\d+\s*[-:]\s*(?:Passed|Failed|Error|TLE|Runtime)',
-                        body_text, re.IGNORECASE
-                    )
-                    if tc_matches:
-                        result_text = "\n".join(tc_matches)
-
-                    # Also look for "X/Y Sample testcase passed" pattern
-                    summary_match = re.search(
-                        r'(\d+)\s*/\s*(\d+)\s*(?:Sample\s*)?(?:testcase|test\s*case)s?\s*passed',
-                        body_text, re.IGNORECASE
-                    )
-                    if summary_match:
-                        result_text += f"\n{summary_match.group(0)}"
-                except Exception:
-                    pass
-
+            js_extract_results = """
+            () => {
+                let text = "";
+                const selectors = [
+                    '.testcase-result',
+                    '.test-case-result',
+                    '[class*="testcase"]',
+                    '[class*="result"]',
+                    '.compilation-result',
+                    '#output-panel',
+                    '.output-area',
+                ];
+                for (const sel of selectors) {
+                    const elements = document.querySelectorAll(sel);
+                    for (const el of elements) {
+                        if (el.innerText && el.innerText.trim()) {
+                            text += el.innerText.trim() + "\\n";
+                        }
+                    }
+                }
+                if (!text) {
+                    const bodyText = document.body.innerText;
+                    const matches = bodyText.match(/(?:Testcase|Test\\s*Case|Sample)\\s*\\d+\\s*[-:]\\s*(?:Passed|Failed|Error|TLE|Runtime)/gi);
+                    if (matches) {
+                        text = matches.join("\\n");
+                    }
+                    const summaryMatch = bodyText.match(/(\\d+)\\s*\\/\\s*(\\d+)\\s*(?:Sample\\s*)?(?:testcase|test\\s*case)s?\\s*passed/i);
+                    if (summaryMatch) {
+                        text += "\\n" + summaryMatch[0];
+                    }
+                }
+                return text;
+            }
+            """
+            result_text = await page.evaluate(js_extract_results)
         except Exception as e:
             logger.warning(f"[SELF-HEAL] Error reading results: {e}")
 
@@ -494,110 +459,69 @@ async def solve_coding_with_retry(problem_statement: str, browser_session: Brows
                 "Specify the CSS selector of the input and the text to type."
 )
 async def human_type(selector: str, text: str, browser_session: BrowserSession) -> str:
-    import random
     try:
         page = await browser_session.get_current_page()
-        element = page.locator(selector).first
-        
-        if await element.count() == 0:
+        elements = await page.get_elements_by_css_selector(selector)
+        if not elements:
             return f"Error: Element with selector '{selector}' not found."
+        element = elements[0]
         
-        # Focus the element
-        await element.focus()
-        
-        # Select all and delete to clear existing text
-        await page.keyboard.press("Control+A")
-        await asyncio.sleep(random.uniform(0.1, 0.2))
-        await page.keyboard.press("Backspace")
-        await asyncio.sleep(random.uniform(0.1, 0.2))
-        
-        # Type character-by-character
-        for char in text:
-            await page.keyboard.type(char)
-            await asyncio.sleep(random.uniform(0.08, 0.12))
-            
-        logger.info(f"⌨️ [HUMAN TYPE]: Typed '{text}' into '{selector}' character-by-character.")
-        return f"Successfully typed text into element '{selector}' using human-like keystrokes."
+        # Element.fill handles focus, clearing, and character-by-character typing with delay internally using CDP.
+        await element.fill(text, clear=True)
+        logger.info(f"⌨️ [HUMAN TYPE]: Typed text into '{selector}'.")
+        return f"Successfully typed text into element '{selector}' using CDP fill."
     except Exception as e:
         logger.error(f"Error in human_type: {e}")
         return f"Error: Human typing failed: {str(e)}"
 
 
 @controller.action(
-    description="Injects ALREADY-KNOWN code into the Monaco editor (e.g., from a saved answer bank lookup). "
+    description="Injects ALREADY-KNOWN code into the Monaco/ACE editor (e.g., from a saved answer bank lookup). "
                 "Use this ONLY when you already have the correct code from lookup_saved_answer. "
                 "For NEW coding questions, use solve_coding_with_retry instead — it handles everything."
 )
 async def inject_code_to_editor(code: str, browser_session: BrowserSession) -> str:
-    import random
     try:
         page = await browser_session.get_current_page()
-        
-        # Disable Monaco's auto-closing features via JS first to avoid code corruption
-        js_disable_autoclose = """
-        () => {
+        js_inject = """
+        (code) => {
             try {
-                if (window.monaco && window.monaco.editor) {
-                    const models = window.monaco.editor.getModels();
-                    models.forEach(model => {
-                        const editors = model._associatedEditors || [];
-                        editors.forEach(e => {
-                            if (e && typeof e.updateOptions === 'function') {
-                                e.updateOptions({
-                                    autoClosingBrackets: 'never',
-                                    autoClosingQuotes: 'never',
-                                    autoClosingDelete: 'never',
-                                    autoClosingOvertype: 'never',
-                                    autoSurround: 'never'
-                                });
-                            }
-                        });
-                    });
-                    return "Disabled auto-close options in Monaco";
+                // 1. Try ACE editor (used by Examly)
+                const aceEditorEl = document.querySelector('.ace_editor');
+                if (aceEditorEl && window.ace) {
+                    const editor = window.ace.edit(aceEditorEl);
+                    editor.setValue(code);
+                    editor.clearSelection();
+                    return "Successfully set code via ACE editor API";
                 }
-                return "Monaco not active";
             } catch (e) {
-                return "Error: " + e.toString();
+                console.error("ACE inject error:", e);
             }
+
+            try {
+                // 2. Try standard or ACE input textarea/contenteditable
+                const tx = document.querySelector('textarea.ace_text-input') || document.querySelector('textarea') || document.querySelector('[contenteditable="true"]');
+                if (tx) {
+                    tx.focus();
+                    if (tx.tagName === 'TEXTAREA' || tx.tagName === 'INPUT') {
+                        tx.value = code;
+                    } else {
+                        tx.innerText = code;
+                    }
+                    tx.dispatchEvent(new Event('input', { bubbles: true }));
+                    tx.dispatchEvent(new Event('change', { bubbles: true }));
+                    return "Successfully set code via direct DOM value assignment";
+                }
+            } catch (e) {
+                console.error("DOM inject error:", e);
+            }
+
+            return "Could not find any suitable editor to inject code";
         }
         """
-        autoclose_res = await page.evaluate(js_disable_autoclose)
-        logger.info(f"⚙️ [MONACO OPT]: {autoclose_res}")
-
-        monaco_textarea = await page.query_selector('.monaco-editor textarea')
-        if monaco_textarea:
-            # Focus the Monaco editor textarea
-            await monaco_textarea.focus()
-            
-            # Clear existing code
-            await page.keyboard.press("Control+A")
-            await asyncio.sleep(random.uniform(0.1, 0.2))
-            await page.keyboard.press("Backspace")
-            await asyncio.sleep(random.uniform(0.1, 0.2))
-            
-            # Type character-by-character with delay
-            for char in code:
-                await page.keyboard.type(char)
-                await asyncio.sleep(random.uniform(0.08, 0.12))
-                
-            logger.info(f"⌨️ [MONACO INJECT]: Typed code into Monaco editor character-by-character ({len(code)} chars).")
-            return "Code typed into Monaco editor successfully."
-        else:
-            # Fallback to standard editor
-            element = await page.query_selector('textarea, div[contenteditable="true"]')
-            if element:
-                await element.focus()
-                await page.keyboard.press("Control+A")
-                await asyncio.sleep(random.uniform(0.1, 0.2))
-                await page.keyboard.press("Backspace")
-                await asyncio.sleep(random.uniform(0.1, 0.2))
-                
-                for char in code:
-                    await page.keyboard.type(char)
-                    await asyncio.sleep(random.uniform(0.08, 0.12))
-                logger.info(f"⌨️ [STANDARD INJECT]: Typed code into fallback editor character-by-character ({len(code)} chars).")
-                return "Code typed into fallback editor successfully."
-            return "Error: No suitable code editor found on the page."
+        res = await page.evaluate(js_inject, code)
+        logger.info(f"⚙️ [MONACO/ACE INJECT]: {res}")
+        return f"Code injected successfully: {res}"
     except Exception as e:
         logger.error(f"Error in inject_code_to_editor: {e}")
         return f"Error: Code injection failed: {str(e)}"

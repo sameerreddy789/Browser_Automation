@@ -379,10 +379,10 @@ def _call_groq(prompt: str, model: str = None) -> str:
 
 
 def _call_gemini(prompt: str) -> str:
-    """Call Gemini Flash Lite. Returns raw text."""
+    """Call Gemini 2.5 Flash. Returns raw text."""
     client = _get_gemini_client()
     response = client.models.generate_content(
-        model="gemini-3.1-flash-lite",
+        model="gemini-2.5-flash",
         contents=prompt,
         config={"temperature": 0.1, "max_output_tokens": 4096},
     )
